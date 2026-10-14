@@ -6,7 +6,9 @@ original legacy bootstrap behavior, including the independent root shell.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
+import json
 from pathlib import Path
 import shutil
 import sys
@@ -288,15 +290,80 @@ set_source_files_properties(c3u_ksu_stage.c PROPERTIES
     return src + addition
 
 
-def apply(checkout: Path, package_root: Path) -> None:
+# The ordinary path keeps the exact binary that succeeded on the projector.
+# Compiled mode is EXPLICIT and fails if any build prerequisite is missing.
+# Never select a compiled candidate as an implicit fallback.
+COMPILED_MODULE = 'KernelSU-Next-C3U-REBUILT-UNVERIFIED-DO-NOT-LOAD.ko'
+TESTED_REVISION = '78ed5d1f5b5041a197f0b55291876d62a6bd7c67'
+
+
+def select_module(package_root: Path, *, compiled: bool = False) -> Path:
+    if not compiled:
+        tested = package_root / 'known-good/working-v6.ko'
+        if not tested.is_file() or tested.stat().st_size != 6797960 or sha256(tested) != KO_SHA256:
+            raise ValueError('Known-good KernelSU .ko is missing or differs from the tested module')
+        return tested
+
+    dist = package_root / 'dist-ksunext-reference'
+    candidate = dist / COMPILED_MODULE
+    checksum = dist / 'rebuilt-module.sha256'
+    revision = dist / 'source-commit.txt'
+    layout = dist / 'layout-report.txt'
+    report = dist / 'module-comparison.json'
+    if not all(f.is_file() and f.stat().st_size > 0
+               for f in (candidate, checksum, revision, layout, report)):
+        raise ValueError('Compiled module or required build attestations are missing; NEVER fall back')
+    if revision.read_text().strip() != TESTED_REVISION:
+        raise ValueError('Compiled KernelSU module did not use the pinned device-tested source revision')
+    expected_hash = checksum.read_text().split()[0].lower()
+    actual_hash = sha256(candidate)
+    if len(expected_hash) != 64 or any(c not in '0123456789abcdef' for c in expected_hash):
+        raise ValueError('Invalid compiled-module checksum')
+    if actual_hash != expected_hash:
+        raise ValueError('Compiled-module digest does not match build output')
+    blob = candidate.read_bytes()
+    # ELF64 little-endian, ET_REL, EM_AARCH64, with the required C3U SELinux fix.
+    if not (1024 * 1024 <= len(blob) <= 32 * 1024 * 1024
+            and blob[:6] == b'\x7fELF\x02\x01'
+            and int.from_bytes(blob[16:18], 'little') == 1
+            and int.from_bytes(blob[18:20], 'little') == 183
+            and blob.count(b'Permissive SELinux, keeping') >= 1
+            and b'vermagic=' in blob):
+        raise ValueError('Compiled module fails basic ARM64 ELF / permissive SELinux checks')
+    comparison = json.loads(report.read_text())
+    if comparison.get('source_revision') != TESTED_REVISION:
+        raise ValueError('Comparison was generated for the wrong KernelSU source revision')
+    if comparison.get('rebuilt_candidate', {}).get('sha256') != actual_hash:
+        raise ValueError('Comparison report does not match rebuilt module')
+    if comparison.get('device_tested_known_good', {}).get('sha256') != KO_SHA256:
+        raise ValueError('Comparison report does not reference the tested KernelSU module')
+    if comparison.get('candidate_only_undefined_symbols'):
+        raise ValueError('New undefined kernel symbols require separate ABI review; no APK')
+    if (comparison['rebuilt_candidate'].get('vermagic')
+            != comparison['device_tested_known_good'].get('vermagic')):
+        raise ValueError('KernelSU vermagic differs from the tested module; no APK')
+    return candidate
+
+
+def compiled_stage_files(source: str, module_size: int) -> tuple[str, str]:
+    """Prepare the generated stage only; don't modify the device-tested template."""
+    if not (1024 * 1024 <= module_size <= 32 * 1024 * 1024):
+        raise ValueError('Unexpected compiled module size')
+    source = replace_once(source, 'if (len != 6797960)',
+                          f'if (len != {module_size})', 'compiled size guard')
+    if source.count('c3u-working-v6.ko') != 2:
+        raise ValueError('Native stage .ko paths have changed; refuse guessed rewrite')
+    source = source.replace('c3u-working-v6.ko', 'c3u-autobuilt.ko')
+    return source, 'ko/c3u-autobuilt.ko'
+
+
+def apply(checkout: Path, package_root: Path, *, compiled: bool = False) -> None:
     checkout = checkout.resolve()
     for rel, expected in UPSTREAM_BASELINE.items():
         current = checkout / rel
         if not current.is_file() or sha256(current) != expected:
             raise ValueError(f'Unexpected legacy baseline at {rel}; refuse to patch')
-    source_ko = package_root / 'known-good/working-v6.ko'
-    if not source_ko.is_file() or source_ko.stat().st_size != 6797960 or sha256(source_ko) != KO_SHA256:
-        raise ValueError('Known-good KernelSU .ko is missing or differs from the tested module')
+    source_ko = select_module(package_root, compiled=compiled)
     modifications = {
         'app/src/main/jni/bootstrap.c': modify_bootstrap,
         'app/src/main/jni/CMakeLists.txt': modify_cmake,
@@ -304,30 +371,42 @@ def apply(checkout: Path, package_root: Path) -> None:
         'app/src/main/java/df/root/MainActivity.java': modify_activity,
         'app/src/main/res/layout/activity_main.xml': modify_layout,
     }
-    # Validate every textual patch before changing the checkout.
     results = {rel: fn((checkout / rel).read_text()) for rel, fn in modifications.items()}
+    stage_src = (package_root / 'patches/dfroot/legacy-ksu/c3u_ksu_stage.c').read_text()
+    stage_ko = 'ko/c3u-working-v6.ko'
+    if compiled:
+        stage_src, stage_ko = compiled_stage_files(stage_src, source_ko.stat().st_size)
+        results['app/src/main/jni/CMakeLists.txt'] = replace_once(
+            results['app/src/main/jni/CMakeLists.txt'],
+            'ko/c3u-working-v6.ko', stage_ko, 'CMake compiled payload dependency')
+    # Text patches are verified above, before writing any checkout files.
     for rel, body in results.items():
         (checkout / rel).write_text(body)
     jni = checkout / 'app/src/main/jni'
-    shutil.copyfile(package_root / 'patches/dfroot/legacy-ksu/c3u_ksu_stage.c', jni / 'c3u_ksu_stage.c')
-    staged_ko = jni / 'ko/c3u-working-v6.ko'
+    (jni / 'c3u_ksu_stage.c').write_text(stage_src)
+    staged_ko = jni / stage_ko
+    staged_ko.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source_ko, staged_ko)
-    if sha256(staged_ko) != KO_SHA256:
-        raise ValueError('KernelSU payload changed while staging')
+    if sha256(staged_ko) != sha256(source_ko):
+        raise ValueError('KernelSU module changed while staging')
     if sha256(jni / 'exp.c') != UPSTREAM_BASELINE['app/src/main/jni/exp.c']:
         raise ValueError('Original DFRoot exploit unexpectedly changed')
     print('PASS: original legacy DFRoot exploit/helper and independent root shell unchanged')
     print('PASS: Manager-staged ksud used; no separate ksud bundled')
-    print('PASS: pinned working KernelSU module staged, opt-in second-stage only')
+    print(f'PASS: {"CI-compiled UNVERIFIED" if compiled else "device-tested"} module embedded in C3U second-stage source')
+    print(f'MODULE_SHA256={sha256(source_ko)}')
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit('Usage: python3 apply_stage.py /path/to/prepared-legacy-DFRoot')
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('checkout', type=Path)
+    parser.add_argument('--compiled', action='store_true',
+                        help='Embed the locally compiled, attested KernelSU module instead of pinned bytes')
+    args = parser.parse_args()
     package_root = Path(__file__).resolve().parents[3]
     try:
-        apply(Path(sys.argv[1]), package_root)
-    except (ValueError, OSError) as exc:
+        apply(args.checkout, package_root, compiled=args.compiled)
+    except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
         raise SystemExit(f'Legacy+KSU integration refused: {exc}')
 
 
