@@ -7,7 +7,6 @@ for c in python3 git docker; do
   command -v "$c" >/dev/null || { echo "Missing required command: $c" >&2; exit 2; }
 done
 python3 "$ROOT/tools/validate-repo.py"
-
 upstream=()
 while IFS= read -r entry; do upstream+=("$entry"); done < <(python3 - "$ROOT/config/upstreams.json" <<'PY'
 import json,sys
@@ -27,7 +26,6 @@ USE_KNOWN_GOOD="${C3U_USE_KNOWN_GOOD:-0}"
 # Reject ambiguous refs and flag injection. A complete Git SHA is also accepted.
 [[ "$KSU_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}$ && "$KSU_REF" != *..* ]] || { echo 'Invalid KSU ref' >&2; exit 2; }
 [[ "$DFROOT_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}$ && "$DFROOT_REF" != *..* ]] || { echo 'Invalid DFRoot ref' >&2; exit 2; }
-
 WORK="$ROOT/work"
 DIST="$ROOT/dist"
 mkdir -p "$WORK" "$DIST"
@@ -43,7 +41,6 @@ checkout_ref() {
   printf '%s %s -> %s\n' "$slug" "$ref" "$(git -C "$dir" rev-parse HEAD)"
 }
 checkout_ref "$DFROOT_REPO" "$DFROOT_REF" "$WORK/DFRoot"
-
 # Source inspection is read-only and acts as the pinned upstream integration
 # report. It does not claim that DirtyFrag is now a service-owned worker.
 echo '=== Inspect pinned upstream DFRoot Java/JNI root flow ==='
@@ -74,14 +71,12 @@ else
   selection=source-built-candidate
 fi
 [[ -s "$KO" ]] || { echo "KernelSU module missing: $KO" >&2; exit 1; }
-
 # The Android TV settings button is optional; it touches only Java UI code.
 # Fail closed on unsupported MainActivity instead of silently mutating it.
 if [[ "${C3U_ENABLE_TV_SETTINGS:-0}" == 1 ]]; then
   echo '=== Applying optional Android TV settings UI patch ==='
   python3 "$ROOT/patches/dfroot/overlay/apply_tv_settings.py" "$WORK/DFRoot"
 fi
-
 # Protected explicit Activity for script-initiated root. Enabled by default.
 # Keeps DFRoot native exploit unmodified and simply dispatches its Root UI action.
 if [[ "${C3U_ENABLE_ADB_INTENT:-1}" == 1 ]]; then
@@ -89,14 +84,21 @@ if [[ "${C3U_ENABLE_ADB_INTENT:-1}" == 1 ]]; then
   python3 "$ROOT/patches/dfroot/overlay/apply_adb_intent.py" "$WORK/DFRoot"
   echo '=== Upgrading to true service-owned DirtyFrag exploit worker ==='
   python3 "$ROOT/patches/dfroot/overlay/apply_service_worker.py" "$WORK/DFRoot"
+  echo '=== v5.4: Unify UI and ADB through one foreground root service ==='
+  python3 "$ROOT/patches/dfroot/overlay/apply_unified_ui.py" "$WORK/DFRoot"
+  python3 "$ROOT/tools/verify-unified-ui.py" \
+    --source-dir "$WORK/DFRoot/app/src/main/java/df/root"
 fi
-
 echo '=== Applying DFRoot integration & building Android APK ==='
 C3U_CI_CACHE_DIR="$ROOT/.ci-cache" \
   "$ROOT/patches/dfroot/build-and-bundle.sh" "$WORK/DFRoot" "$KO"
-
 cp -f -- "$KO" "$DIST/KernelSU-Next-C3U-CANDIDATE.ko"
 cp -f -- "$WORK/DFRoot/out/DFRoot.apk" "$DIST/DFRoot-C3U-CANDIDATE.apk"
+if [[ "${C3U_ENABLE_ADB_INTENT:-1}" == 1 ]]; then
+  echo '=== Verifying compiled v5.4 classes and absence of legacy runExploit ==='
+  python3 "$ROOT/tools/verify-unified-ui.py" \
+    --apk "$DIST/DFRoot-C3U-CANDIDATE.apk"
+fi
 python3 "$ROOT/tools/manifest.py" \
   --config "$ROOT/config/upstreams.json" \
   --out "$DIST/build-manifest.json" \
