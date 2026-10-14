@@ -51,6 +51,7 @@ jobs:
           python3 tools/validate-repo.py
           python3 tools/check-patchset.py
           python3 -m py_compile tools/inspect_dfroot_root_flow.py tools/check-patchset.py tools/verify-apk-native.py
+          python3 -m py_compile patches/dfroot/overlay/apply_service_worker.py
           bash -n tools/build-all.sh
           bash -n tools/adb-root-c3u.sh
           bash -n patches/dfroot/build-and-bundle.sh

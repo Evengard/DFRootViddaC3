@@ -7,9 +7,9 @@ series = json.loads((BASE/'patches/dfroot/patchset/series.json').read_text())
 assert series['schema_version'] == 1
 assert series['upstream']['repository'] == 'diabl0w/DFRoot'
 assert series['upstream']['ref'] == 'v3.1'
-assert series['service_owned_exploit_status'] == 'NOT_IMPLEMENTED'
+assert series['service_owned_exploit_status'] == 'IMPLEMENTED_SOURCE_REVIEWED_DEVICE_UNTESTED'
 for stage in series['stages']:
     path = BASE / stage['entrypoint']
     assert path.is_file(), f"Missing patchset component {stage['id']}: {path}"
     print(stage['id'], stage['scope'], path.relative_to(BASE))
-print('Patchset consistent (source-only; no actual Android build has run)')
+print('Patchset consistent (service worker source reviewed; current patch not device-tested)')

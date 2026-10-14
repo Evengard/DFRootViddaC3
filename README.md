@@ -1,16 +1,12 @@
 # Vidda C3U — DFRoot + KernelSU Next, automated GitHub Actions builds
 
-> **v4 repository edition — staged patchset, not yet a headless worker.**
-> This ZIP includes the complete earlier GitHub Actions skeleton and ordered
-> DFRoot integration scripts, plus a pinned-upstream source-inspection workflow.
-> The Android 14 foreground service still **holds the process** while
-> `MainActivity` dispatches the exploit. Moving the actual `IpSecManager`/JNI
-> operation into the service is **not yet implemented or validated** because
-> direct DFRoot source checkout was unavailable during packaging. See
-> [service worker migration spec](docs/SERVICE-WORKER-MIGRATION.md) and the
-> [patchset](patches/dfroot/patchset/README.md). The first GitHub Actions run
-> fetches DFRoot v3.1 and produces the required source analysis artifact.
->
+> **v5.3 foreground-service patchset.** The latest successful GitHub Actions
+> artifact included the actual DFRoot v3.1 `ExploitRunner.java`, which exposes
+> a UI-independent `run(Context, IReporter)` entrypoint. This repository now
+> adds a fail-closed stage that executes the exploit **inside an Android 14
+> foreground service worker**; the protected ADB Activity is only a launcher.
+> The new path is source-reviewed but **not yet build- or device-tested**.
+> See [service migration details](docs/SERVICE-WORKER-MIGRATION.md).
 
 > **Experimental, device-specific build system.** This is not an official DFRoot or KernelSU Next release, and **CI cannot verify runtime compatibility**. Do not automatically install, load or flash its binaries. It targets only the exact Hisense firmware listed below.
 
@@ -49,15 +45,24 @@ If the repository is private, GitHub-hosted runners and artifact storage still f
 
 ## Protected ADB-triggered Root (C3U integration)
 
-**Foreground-service edition:** the modified APK can initiate DFRoot's existing Root action without navigating Android TV settings or pressing a button, while holding the app process in an Android 14-compatible foreground service:
+**Service-owned exploit edition:** The modified APK exposes a protected,
+briefly visible ADB launcher. It starts a non-exported Android 14 foreground
+service; that service invokes DFRoot's existing `ExploitRunner.run()` directly
+on a worker thread while owning the Android IPsec/native process lifecycle.
+There is no Root-button simulation or dependency on `MainActivity` remaining
+open. The service and launcher are single-use guarded and firmware-locked.
 
 ```bash
 adb shell am start -n df.root/.C3UAdbRootActivity
+adb logcat -s C3UAdbRoot:I C3URootService:I
+adb shell 'su -c id'
 ```
 
-This launcher is protected by Android's `DUMP` permission (normally held by ADB shell). Once visible, it starts a non-exported foreground service with an ongoing notification, waits for an internal foreground-readiness acknowledgment, hands a single-use private token to `MainActivity`, and clicks the existing Root/Run Exploit button only when an unambiguous match is found. The foreground service keeps the DFRoot process less likely to be reclaimed by Android while the **C3U-v6 KernelSU** bootstrap runs; it stops after the module appears and a short stabilization interval, or after four minutes. This **does not move DirtyFrag into the service worker**: initial exploitation remains UI-assisted. A normal third-party launcher without shell/root permissions cannot trigger it.
-
-Check `adb logcat -s C3UAdbRoot:I C3URootService:I` for the trigger and foreground-service status and **verify actual root** using `adb shell 'su -c id'`. An Activity starting or a DFRoot marker appearing isn't proof of root. See [docs/ADB-INTENT.md](docs/ADB-INTENT.md) for the host helper, protections, constraints, diagnostics and security notes. The GitHub build applies this patch by default; disable locally with `C3U_ENABLE_ADB_INTENT=0`.
+`am start` is not proof of root. The APK must finish the exploit and the shell
+must be granted permission in the KernelSU manager. See
+[docs/ADB-INTENT.md](docs/ADB-INTENT.md). This is still an Android
+APK, **not a standalone native binary**, and does not automatically start
+at boot. Toggle locally with `C3U_ENABLE_ADB_INTENT=0` to omit it entirely.
 
 ## What gets built
 
@@ -149,7 +154,7 @@ python3 -m unittest discover -s tests -v
 
 ## Device and APK limitations
 
-- **No genuinely headless first-stage DirtyFrag binary is included.** DFRoot's first-stage exploit still depends on its Android app and `IpSecManager`, but the new **permission-gated ADB Activity** can request its Root button automatically. The action is UI-assisted and may fail closed if DFRoot's UI changes. `c3u-root-stage2.sh` handles only the root-only second stage and cannot root a fresh boot on its own.
+- **No standalone native first-stage DirtyFrag binary is included.** The root worker is now service-owned inside DFRoot's Android app, because it still requires Android `IpSecManager`. The protected ADB intent launches it without UI interaction. `c3u-root-stage2.sh` handles only the privileged second stage and cannot root a fresh boot on its own.
 - The integrated DFRoot bootstrap currently expects a previously installed, compatible **`/data/adb/ksud`** from your successful KernelSU Next installation. It does not build or deploy a new `ksud` userspace binary with every release. A newer module may require a matching userspace version. The upstream-update PR must be reviewed for this too.
 - The integrated C3U preloader and Android TV control have **not** been validated end-to-end on your projector. The manually loaded v6 module working does not prove the DFRoot integration works.
 - The APK may be signed with an ephemeral CI key. A new build can require uninstall/reinstall if your existing DFRoot signature differs, losing its settings. If stable in-place app upgrades matter, use a persistent signing key and review DFRoot's signing configuration before deploying.
@@ -176,7 +181,7 @@ tests/                                 offline tests
 
 This kit builds modified code from [DFRoot](https://github.com/diabl0w/DFRoot) and [KernelSU Next](https://github.com/KernelSU-Next/KernelSU-Next). Keep their original copyright and license notices. KernelSU Next's `/kernel` is GPL-2.0-only and other upstream components are GPL-3.0-or-later. The module and APK artifacts may have reciprocal source-distribution obligations; publish the exact patch sources and revision manifest alongside any binaries you distribute. See `NOTICE.md`.
 
-## v4 patchset maintenance
+## v5.3 patchset maintenance
 
 `patches/dfroot/patchset/series.json` is the ordered patch manifest. The main
 build calls `tools/inspect_dfroot_root_flow.py` immediately after checking out
@@ -191,8 +196,9 @@ python3 tools/check-patchset.py
 python3 -m unittest discover -s tests -v
 ```
 
-The build remains UI-assisted (even though ADB can trigger it); do not mark
-it as a fully headless exploit yet. This is deliberately not an automatic
+The v5.3 root worker runs inside a foreground service; the brief ADB Activity
+only starts that service. This is **unattended, not a standalone executable**.
+It has not yet been tested on the C3U, and is deliberately not an automatic
 root-on-boot mechanism.
 
 ## CI native-build fix and caches (v5.1)

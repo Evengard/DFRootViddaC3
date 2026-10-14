@@ -25,8 +25,10 @@ def validate(config):
     for name in ('build-and-bundle.sh', 'build-in-docker.sh'):
         assert (ROOT / 'patches/dfroot' / name).is_file()
     assert (ROOT / 'patches/ksunext/patch-selinux.py').is_file()
-    for name in ('apply_adb_intent.py', 'C3UAdbRootActivity.java', 'C3UAdbRootAction.java'):
+    for name in ('apply_adb_intent.py', 'C3UAdbRootActivity.java', 'C3UAdbRootAction.java', 'apply_service_worker.py'):
         assert (ROOT / 'patches/dfroot/overlay' / name).is_file()
+    for name in ('C3UAdbRootActivity.java','C3URootForegroundService.java'):
+        assert (ROOT/'patches/dfroot/service_worker'/name).is_file()
     return True
 
 

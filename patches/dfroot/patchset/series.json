@@ -24,8 +24,13 @@
       "id": "04-adb-launcher-fgs",
       "entrypoint": "patches/dfroot/overlay/apply_adb_intent.py",
       "scope": "android-ui-launch-and-foreground-holder"
+    },
+    {
+      "id": "05-service-owned-root-worker",
+      "entrypoint": "patches/dfroot/overlay/apply_service_worker.py",
+      "scope": "android-foreground-service-exploit-worker"
     }
   ],
-  "service_owned_exploit_status": "NOT_IMPLEMENTED",
-  "note": "Stage 04 holds app process foreground but still dispatches upstream Root action in MainActivity; it does not own IpSecManager/native exploit. See docs/SERVICE-WORKER-MIGRATION.md."
+  "service_owned_exploit_status": "IMPLEMENTED_SOURCE_REVIEWED_DEVICE_UNTESTED",
+  "note": "Stage 05 replaces the UI click with a service worker calling upstream ExploitRunner.run(Context, IReporter); validated against actual DFRoot v3.1 source artifact. No auto-boot or auto-module load."
 }

@@ -1,56 +1,24 @@
-# C3U service-owned DirtyFrag migration — integration spec
+# C3U source-reviewed foreground-service migration
 
-## Current status
+## Implemented design (v5.3 CI patchset)
 
-`C3URootForegroundService` is a **foreground process holder**, not the owner
-of the DirtyFrag worker. `C3UAdbRootAction` still performs an activity UI
-control click. The attached v4 repository **does not claim true headless
-rooting**. Upstream DFRoot v3.1 Java/JNI sources must be examined first.
+Using the upstream DFRoot v3.1 `ExploitRunner.java` recovered in the GitHub Actions build artifact, we confirmed the exploit already has a UI-independent API:
 
-## Target design
+```java
+public static int run(Context ctx, IReporter reporter) throws Exception
+```
 
-1. **Protected ADB entrypoint**: `adb shell am start -n df.root/.C3UAdbRootActivity`
-   (permission `android.permission.DUMP`), verifies exact target firmware.
-2. The visibly launched Activity starts a **non-exported `specialUse`
-   foreground service**. It does not handle IpSec resources or native exploit.
-3. `C3URootForegroundService` promotes itself with an ongoing notification
-   and schedules one background worker. It is `START_NOT_STICKY`.
-4. A single `C3URootOperation` owns all `IpSecManager` transforms, UDP sockets,
-   SPI allocations and file descriptors for their required lifetimes. No
-   objects may be accidentally finalized or GC-closed while JNI uses them.
-5. Operation calls DFRoot's existing native methods using the original
-   initialization order, with native libraries loaded as required, and uses
-   `applicationContext` instead of an Activity where supported.
-6. The operation records `STARTED`, `IPSEC_READY`, `NATIVE_DONE`,
-   `KSU_VISIBLE`, `ROOT_VERIFIED`, `FAILED` with distinct timestamps. Markers
-   like `/dev/dfm6` are *not* accepted as proof of root.
-7. A single-flight lock prevents simultaneous exploit attempts. `/dev/df`
-   is a one-shot marker; the service must not automatically retry on timeout.
-8. Resources are closed in `finally`, in correct reverse order; the
-   foreground notification is removed only after worker completion or an
-   explicit failure. Android process death may interrupt work and cannot be
-   prevented absolutely by a foreground service.
-9. Firmware checks and the selected C3U v6 module/SELinux corrections are
-   preserved unchanged. No automatic reboot or boot-time loading.
+This API stages the selected manager's `ksud` and the native bootstrap, obtains `IpSecManager` resources, creates a transport transform, runs `libdfroot.so` via `ProcessBuilder`, and releases IPsec resources in a `finally` block. No DFRoot GUI is required to perform the operation.
 
-## What CI verifies now
+The v5.3 service patch is applied after the older v3 launcher patch. It replaces its Activity and service sources, removes the Root-button auto-click from `MainActivity`, and calls `ExploitRunner.run()` directly on a service-owned single-thread worker. It requires the pinned upstream `ExploitRunner.java` SHA-256 and checks source and manifest shape before changing the app. On incompatible upstream sources, it fails the build instead of silently producing a UI-dependent APK.
 
-The included upstream-inspection workflow pins `DFRoot v3.1`, copies the Java
-and JNI files referencing IPsec and the native root path, and uploads a report
-under the `dfroot-v3.1-root-flow-source` artifact. The main CI continues to
-build **the v3 UI-assisted edition**. A true service-owned patch should be
-introduced as a new, fail-closed stage only when the pinned source has been
-reviewed and compiled; never silently fall back to button clicks while
-claiming headless behavior.
+`C3UAdbRootActivity` only creates a short-lived token and starts the non-exported service while briefly visible. The service promotes itself to a foreground notification before starting the worker, validates and consumes the token, rejects duplicate attempts, and holds a bounded partial wake lock. After the native worker exits and upstream IPsec cleanup is complete, it logs the actual return code and module visibility, then stops. It never claims `su` is working solely because `/dev/dfm6` or `kernelsu` is visible.
 
-## Minimum tests for a future service-owned implementation
+## What remains unverified
 
-- Upstream pin and source-shape check reject unsupported changes.
-- Java/Android compile against actual DFRoot v3.1 with Android 14 service
-  type and permissions; no non-exported service can be started externally.
-- Test duplicate `am start` requests, service kill, timeout, and interrupted
-  IPsec cleanup. Assert no duplicate exploit worker.
-- Only a real `su -c id` (authorized shell) or equivalent UID 0 command
-  constitutes a functional-success signal; loading a `.ko` is not enough.
-- Manual on-projector verification on the **exact** firmware before
-  enabling any scheduled invocation.
+- Real GitHub Actions/Gradle build with the v5.3 service patch.
+- Android 14/VIDAA behavior, foreground-service eligibility, and permission handoff on a C3U.
+- Actual successful root under screen-off/sleep behavior and post-load stability.
+- Manual `su -c id` confirmation with an authorized ADB shell. A module being listed isn't proof of a usable `su`.
+
+The original C3U-v6 kernel module and firmware guards remain unchanged. The patch is not an automatic boot-time root installer. Kernel panics and watchdog resets remain possible if the `.ko` is incompatible.

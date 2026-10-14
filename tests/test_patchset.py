@@ -6,8 +6,8 @@ class PatchsetTests(unittest.TestCase):
     def test_manifest(self):
         config = json.loads((ROOT/'patches/dfroot/patchset/series.json').read_text())
         self.assertEqual(config['upstream']['ref'], 'v3.1')
-        self.assertEqual(config['service_owned_exploit_status'], 'NOT_IMPLEMENTED')
-        self.assertEqual(len(config['stages']), 4)
+        self.assertEqual(config['service_owned_exploit_status'], 'IMPLEMENTED_SOURCE_REVIEWED_DEVICE_UNTESTED')
+        self.assertEqual(len(config['stages']), 5)
         for entry in config['stages']:
             self.assertTrue((ROOT/entry['entrypoint']).is_file())
     def test_inspector_samples(self):

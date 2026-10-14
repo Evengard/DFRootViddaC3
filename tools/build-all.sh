@@ -87,6 +87,8 @@ fi
 if [[ "${C3U_ENABLE_ADB_INTENT:-1}" == 1 ]]; then
   echo '=== Installing protected C3U ADB Root intent launcher ==='
   python3 "$ROOT/patches/dfroot/overlay/apply_adb_intent.py" "$WORK/DFRoot"
+  echo '=== Upgrading to true service-owned DirtyFrag exploit worker ==='
+  python3 "$ROOT/patches/dfroot/overlay/apply_service_worker.py" "$WORK/DFRoot"
 fi
 
 echo '=== Applying DFRoot integration & building Android APK ==='
