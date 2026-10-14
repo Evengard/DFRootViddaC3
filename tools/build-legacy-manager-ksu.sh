@@ -77,10 +77,12 @@ docker run --rm --platform linux/amd64 \
     cp "${apks[0]}" out/DFRoot.apk
     "${ANDROID_HOME}/build-tools/37.0.0/apksigner" verify \
       --verbose --print-certs out/DFRoot.apk > out/apk-signature.txt
-    grep -q "Signer #1 certificate SHA-256 digest:" out/apk-signature.txt || {
-      echo "Could not verify APK signing certificate" >&2; exit 1;
-    }
   '
+# apksigner returns nonzero if the APK signature is invalid. Build Tools 37
+# changed the certificate line prefix (Signer #1 -> V2/V3.0 Signer), so parse
+# the signed APK report without assuming one specific tool-version format.
+SIGNING_CERT_SHA256="$(python3 "$ROOT/tools/parse-apk-signature.py" "$WORK/out/apk-signature.txt")"
+echo "PASS: APK cryptographic signature verified; certificate SHA-256=$SIGNING_CERT_SHA256"
 # Remove the private signing materials immediately after Gradle finishes.
 # The EXIT trap also covers a failed/interrupted Docker build.
 rm -f -- "$WORK/keystore.jks" "$WORK/signing.properties"
@@ -117,15 +119,14 @@ PY
 python3 "$ROOT/tools/verify-c3u-service-apk.py" "$APK"
 cp "$APK" "$DIST/$APK_NAME"
 cp "$WORK/out/apk-signature.txt" "$DIST/apk-signature.txt"
-python3 - "$DIST" "$OLD_REF" "$OLD_HELPER_SHA" "$SELECTED_KSU" "$MODULE_SELECTION" "$APK_NAME" <<'PY'
+python3 - "$DIST" "$OLD_REF" "$OLD_HELPER_SHA" "$SELECTED_KSU" "$MODULE_SELECTION" "$APK_NAME" "$SIGNING_CERT_SHA256" <<'PY'
 import hashlib,json,sys
 from pathlib import Path
 out=Path(sys.argv[1]); apk=out/sys.argv[6]; ko=Path(sys.argv[4]);
 import re
-report=(out/'apk-signature.txt').read_text()
-match=re.search(r'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]{64})', report)
-if not match: raise SystemExit('Missing verified APK certificate SHA-256')
-cert_sha256=match.group(1).lower()
+# Certificate hash comes from the version-tolerant parser. The preceding
+# apksigner verify command must have succeeded before we reach this point.
+cert_sha256=sys.argv[7]
 gradle=(out.parent/'work-legacy-manager-ksu/DFRoot/app/build.gradle.kts').read_text()
 version_match=re.search(r'(?m)^\s*versionCode\s*=\s*(\d+)\s*$', gradle)
 if not version_match: raise SystemExit('Cannot determine built APK versionCode')
