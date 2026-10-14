@@ -8,10 +8,19 @@ APK_DIR="$ROOT/dist-legacy-manager-ksu"
 KO="$KO_DIR/KernelSU-Next-C3U-REBUILT-UNVERIFIED-DO-NOT-LOAD.ko"
 APK="$APK_DIR/DFRoot-C3U-AUTOBUILT-KSUNEXT-UNVERIFIED.apk"
 
+# Fail immediately if CI has not been configured with one persistent signing key.
+# This prevents wasting time compiling a module that cannot be packaged.
+python3 "$ROOT/tools/prepare-apk-signing.py" --check
+
 # Prevent stale results from making an unsuccessful run appear successful.
 rm -rf -- "$KO_DIR" "$APK_DIR"
 
-bash "$ROOT/tools/build-ksunext-tested-ref-candidate.sh"
+# No signing secret is inherited by the upstream KernelSU compilation process.
+(
+  unset C3U_SIGNING_KEYSTORE_B64 C3U_SIGNING_KEYSTORE_PASSWORD
+  unset C3U_SIGNING_KEY_ALIAS C3U_SIGNING_KEY_PASSWORD
+  bash "$ROOT/tools/build-ksunext-tested-ref-candidate.sh"
+)
 test -s "$KO" || { echo 'FAIL: KernelSU compilation did not produce a .ko' >&2; exit 1; }
 
 # This flag changes the payload and native size guard used by the APK builder.

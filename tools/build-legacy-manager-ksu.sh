@@ -7,6 +7,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 OLD_REF=6de62220809a678fddbd3819e4fcb3bb68aa1eae
 OLD_HELPER_SHA=5135155128a90947e6ec341c36ce4b7169bdfe68f363341c9d0ed9568c60e473
 WORK="$ROOT/work-legacy-manager-ksu/DFRoot"
+# CI supplies one persistent signing identity. Never run upstream `make
+# signing.properties`, which creates a different keystore on every runner.
+trap 'rm -f -- "$WORK/keystore.jks" "$WORK/signing.properties"' EXIT
 DIST="$ROOT/dist-legacy-manager-ksu"
 HELPER="$ROOT/known-good/dfroot-helper-6de6222.ko"
 GOOD_KSU="$ROOT/known-good/working-v6.ko"
@@ -49,6 +52,8 @@ python3 "$ROOT/tools/prepare-legacy-first-stage.py" "$WORK"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_stage.py" "$WORK" "${STAGE_ARG[@]}"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_foreground_service.py" "$WORK"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_tv_settings.py" "$WORK"
+# Signing is prepared only after the disposable checkout is fully patched.
+python3 "$ROOT/tools/prepare-apk-signing.py" "$WORK"
 
 # Only the userspace DFRoot app is built at this stage; the chosen .ko was
 # compiled in the preceding CI step. Do not regenerate the DFRoot helper.
@@ -61,14 +66,24 @@ docker run --rm --platform linux/amd64 \
   --workdir /work \
   --env GRADLE_USER_HOME=/gradle-cache \
   "$BUILDER" bash -euc '
-    make signing.properties
+    test -s keystore.jks && test -s signing.properties || {
+      echo "Persistent signing key unavailable; refusing ephemeral signing" >&2; exit 1;
+    }
     ./gradlew :app:assembleRelease --build-cache
     mkdir -p out
     shopt -s nullglob
     apks=(app/build/outputs/apk/release/DFRoot_*.apk)
     (( ${#apks[@]} == 1 )) || { echo "Expected exactly one APK" >&2; exit 1; }
     cp "${apks[0]}" out/DFRoot.apk
+    "${ANDROID_HOME}/build-tools/37.0.0/apksigner" verify \
+      --verbose --print-certs out/DFRoot.apk > out/apk-signature.txt
+    grep -q "Signer #1 certificate SHA-256 digest:" out/apk-signature.txt || {
+      echo "Could not verify APK signing certificate" >&2; exit 1;
+    }
   '
+# Remove the private signing materials immediately after Gradle finishes.
+# The EXIT trap also covers a failed/interrupted Docker build.
+rm -f -- "$WORK/keystore.jks" "$WORK/signing.properties"
 APK="$WORK/out/DFRoot.apk"
 python3 "$ROOT/tools/verify-apk-native.py" "$APK"
 python3 - "$APK" "$HELPER" "$SELECTED_KSU" <<'PY'
@@ -101,10 +116,19 @@ print('PASS: byte-exact SELECTED KernelSU module embedded in libc3uksu.so; NO ks
 PY
 python3 "$ROOT/tools/verify-c3u-service-apk.py" "$APK"
 cp "$APK" "$DIST/$APK_NAME"
+cp "$WORK/out/apk-signature.txt" "$DIST/apk-signature.txt"
 python3 - "$DIST" "$OLD_REF" "$OLD_HELPER_SHA" "$SELECTED_KSU" "$MODULE_SELECTION" "$APK_NAME" <<'PY'
 import hashlib,json,sys
 from pathlib import Path
 out=Path(sys.argv[1]); apk=out/sys.argv[6]; ko=Path(sys.argv[4]);
+import re
+report=(out/'apk-signature.txt').read_text()
+match=re.search(r'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]{64})', report)
+if not match: raise SystemExit('Missing verified APK certificate SHA-256')
+cert_sha256=match.group(1).lower()
+gradle=(out.parent/'work-legacy-manager-ksu/DFRoot/app/build.gradle.kts').read_text()
+version_match=re.search(r'(?m)^\s*versionCode\s*=\s*(\d+)\s*$', gradle)
+if not version_match: raise SystemExit('Cannot determine built APK versionCode')
 manifest={
   'status': 'device_test_required' if sys.argv[5]=='pinned-device-tested' else 'CI_REBUILT_UNVERIFIED_DEVICE_TEST_REQUIRED',
   'dfroot':{'ref':sys.argv[2], 'helper_sha256':sys.argv[3]},
@@ -115,7 +139,9 @@ manifest={
                  else {'source_revision':'device-tested-binary','version_tag':'legacy-tested','version_code':None})},
   'ksud':{'source':'installed Manager libksud.so, staged by DFRoot (NOT bundled)',
           'required_sha256':'448155d297e0402ca577379131fc081387a4454392212c3b1567a9de0d58c974'},
-  'apk':{'filename':apk.name, 'sha256':hashlib.sha256(apk.read_bytes()).hexdigest()},
+  'apk':{'filename':apk.name, 'sha256':hashlib.sha256(apk.read_bytes()).hexdigest(),
+         'version_code':int(version_match.group(1)), 'signing_certificate_sha256':cert_sha256,
+         'signing':'persistent-GitHub-Actions-secret-backed'},
   'execution':{'service_owned_exploit':True,'independent_temporary_root_shell':True,
                'root_modes':['root-only','ksun'],
                'adb_protected_with_android_permission_DUMP':True,

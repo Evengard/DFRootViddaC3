@@ -38,6 +38,11 @@ jobs:
           bash -n patches/ksunext/tested-revision/build-in-docker.sh
 
       - name: Compile selected KernelSU ref and embed it into legacy DFRoot APK
+        env:
+          C3U_SIGNING_KEYSTORE_B64: ${{ secrets.C3U_SIGNING_KEYSTORE_B64 }}
+          C3U_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.C3U_SIGNING_KEYSTORE_PASSWORD }}
+          C3U_SIGNING_KEY_ALIAS: ${{ secrets.C3U_SIGNING_KEY_ALIAS }}
+          C3U_SIGNING_KEY_PASSWORD: ${{ secrets.C3U_SIGNING_KEY_PASSWORD }}
         run: bash tools/build-c3u-autobuilt-apk.sh
 
       - name: Verify final APK contains the just-built module
