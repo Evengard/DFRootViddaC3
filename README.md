@@ -201,9 +201,25 @@ The initial workflow built the patched `android14-5.15` DFRoot kernel module,
 then called Gradle without compiling DFRoot's JNI/CMake libraries. The v5
 follow-up built the native targets but erroneously demanded a nonexistent
 `libexp.so`; v5.1 corrects the packaging checks to match DFRoot v3.1. The APK
-could be created without the exploit executable (`libdfroot.so`). In v5.1, the Android Docker stage explicitly
-runs `patches/dfroot/build-native-in-docker.sh` **before** `assembleRelease` and
-stages the ARM64 CMake results into `app/src/main/jniLibs/arm64-v8a/`.
+could be created without the exploit executable (`libdfroot.so`). v5.1 incorrectly staged **all** ARM64 CMake binaries into
+`app/src/main/jniLibs/arm64-v8a/` before `assembleRelease`. Because Gradle
+also builds `libbootstrap.so` and `libdfroot.so` via `externalNativeBuild`,
+`mergeReleaseNativeLibs` then failed with duplicate native libraries.
+
+### v5.2: single-source native packaging
+
+The Docker step now clears only our formerly staged C3U native files and
+runs `:app:assembleRelease` directly. Gradle owns `libbootstrap.so` and
+`libdfroot.so`. If (and only if) the resulting APK lacks the executable
+`libdfrootsu.so`, the fallback builds and stages **only** this one client,
+then reruns `assembleRelease`. This avoids a duplicate target while keeping
+`libdfrootsu.so` executable rather than converting it into a shared library.
+
+The existing APK verifier still requires all three native files and the exact
+embedded KernelSU module in `libbootstrap.so`. It additionally rejects
+repeated ZIP entries. No `pickFirst` packaging rules are added.
+The v5.2 regression suite simulates Gradle packaging with and without the
+client to ensure neither path leaves duplicate staged CMake libraries.
 
 The build now fails if the **final APK** lacks `libdfroot.so`, `libbootstrap.so`, `libdfrootsu.so`, or
 its exact embedded C3U KernelSU module. CMake, Gradle and archive checks all
@@ -221,6 +237,6 @@ GitHub Actions runners remain ephemeral; the KSU compilation container and its
 module compilation are not currently cached. Upstream source and patch changes
 can invalidate caches. Builds remain **untested on the projector**.
 
-**Upgrading an existing GitHub repo:** overlay the small `CI-Fix-v5-patch.zip`
+**Upgrading an existing GitHub repo:** overlay the small `DFRootViddaC3-CI-Fix-v5.2-patch.zip`
 archive at the repository root, commit and push. Do not add the known-working
 KernelSU module to public CI unless you intend to publish that binary.

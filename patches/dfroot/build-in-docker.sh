@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build C3U-only DFRoot kernel module and the REQUIRED native CMake targets,
-# then package a verified arm64 APK using Gradle. Supports GitHub Actions cache.
+# then let Gradle package its own CMake targets; stage only an omitted client. Supports GitHub Actions cache.
 set -euo pipefail
 if [[ $# -ne 1 ]]; then
   echo "Usage: $0 /path/to/DFRoot" >&2
@@ -86,7 +86,7 @@ else
     -f "$script_dir/Dockerfile" "$script_dir"
 fi
 
-echo '=== Building ALL required ARM64 CMake binaries BEFORE Gradle packaging ==='
+echo '=== Packaging Gradle/CMake native targets exactly once ==='
 docker run --rm --platform linux/amd64 \
   --mount "type=bind,src=${repo},dst=/work" \
   --mount "type=bind,src=${script_dir},dst=/tooling,readonly" \
@@ -94,13 +94,45 @@ docker run --rm --platform linux/amd64 \
   --workdir /work \
   --env GRADLE_USER_HOME=/gradle-cache \
   "$builder" bash -euc '
-    /tooling/build-native-in-docker.sh /work
-    echo "=== Packaging native outputs into release APK ==="
+    # Gradle externalNativeBuild already supplies libbootstrap.so and
+    # libdfroot.so to MergeReleaseNativeLibs. In v5.1 we additionally copied
+    # them to jniLibs, causing a duplicate-input Gradle failure.
+    stage=app/src/main/jniLibs/arm64-v8a
+    mkdir -p "$stage"
+    rm -f "$stage/libbootstrap.so" "$stage/libdfroot.so" \
+          "$stage/libdfrootsu.so" "$stage/libexp.so"
     make signing.properties
+
+    # First pass uses Gradle-owned native artifacts exclusively.
     ./gradlew :app:assembleRelease --build-cache
+    shopt -s nullglob
+    apks=(app/build/outputs/apk/release/DFRoot_*.apk)
+    if (( ${#apks[@]} != 1 )); then
+      echo "ERROR: expected exactly one DFRoot release APK, got ${#apks[@]}" >&2
+      exit 1
+    fi
+    apk="${apks[0]}"
+    if ! unzip -Z1 "$apk" | grep -Fxq "lib/arm64-v8a/libbootstrap.so"; then
+      echo "ERROR: Gradle failed to package its CMake libbootstrap.so" >&2
+      exit 1
+    fi
+    if ! unzip -Z1 "$apk" | grep -Fxq "lib/arm64-v8a/libdfroot.so"; then
+      echo "ERROR: Gradle failed to package its CMake libdfroot.so" >&2
+      exit 1
+    fi
+
+    if unzip -Z1 "$apk" | grep -Fxq "lib/arm64-v8a/libdfrootsu.so"; then
+      echo "Standalone root client already packaged by Gradle; no jniLibs staging needed"
+    else
+      # Executable ELF targets may not be packaged by Android Gradle Plugin.
+      # Build and stage ONLY that one executable, then let Gradle re-merge.
+      echo "Standalone root client absent; staging only libdfrootsu.so"
+      /tooling/build-native-in-docker.sh /work
+      ./gradlew :app:assembleRelease --build-cache
+    fi
     mkdir -p out
-    cp app/build/outputs/apk/release/DFRoot_*.apk out/DFRoot.apk
-    ls -lh out/DFRoot.apk
+    cp "$apk" out/DFRoot.apk
+    echo "APK ready for strict verification: /work/out/DFRoot.apk"
   '
 [[ -s "$repo/out/DFRoot.apk" ]] || { echo 'APK was not produced' >&2; exit 1; }
 python3 "$script_dir/../../tools/verify-apk-native.py" "$repo/out/DFRoot.apk"

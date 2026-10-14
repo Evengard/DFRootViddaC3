@@ -11,6 +11,7 @@ import argparse
 from pathlib import Path
 import sys
 import zipfile
+from collections import Counter
 
 REQUIRED = (
     'lib/arm64-v8a/libdfroot.so',
@@ -23,7 +24,11 @@ def verify(apk: Path, ko: Path | None = None) -> None:
     if not apk.is_file() or apk.stat().st_size == 0:
         raise ValueError(f'APK missing or empty: {apk}')
     with zipfile.ZipFile(apk) as z:
-        names = set(z.namelist())
+        entries = z.namelist()
+        duplicates = sorted(name for name, count in Counter(entries).items() if count > 1)
+        if duplicates:
+            raise ValueError('APK contains duplicate ZIP entries: ' + ', '.join(duplicates))
+        names = set(entries)
         libs = sorted(n for n in names if n.startswith('lib/') and n.endswith('.so'))
         print('Packaged native libraries:')
         for name in libs:

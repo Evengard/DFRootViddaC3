@@ -59,3 +59,25 @@ KernelSU patch, the DFRoot exploit chain, or the existing protected ADB
 foreground-process holder. The DirtyFrag worker has **not** been migrated into
 the service; that is a separate future change. Do not automatically install or
 load a freshly built kernel module based on a green CI run.
+
+
+## v5.2: fix `MergeReleaseNativeLibs` duplicate native libraries
+
+Gradle's Android CMake integration automatically builds/packages
+`libbootstrap.so` and `libdfroot.so`. The v5.1 CI script manually copied the
+same native outputs into `app/src/main/jniLibs/arm64-v8a/`, so Gradle received
+both a `merged_jni_libs` copy and a `cxx` copy and failed at
+`MergeReleaseNativeLibs`.
+
+We now use one source of truth:
+
+1. Delete only the prior CI-staged C3U binaries from `jniLibs` (not unrelated files).
+2. Run `:app:assembleRelease`; Gradle packages its own CMake targets.
+3. Require `libbootstrap.so` and `libdfroot.so` in the resulting APK.
+4. If `libdfrootsu.so` is absent, build **only** the `dfrootsu` CMake target,
+   copy only its ELF to `jniLibs`, and re-run `assembleRelease`.
+5. Validate the final APK, including exactly the intended embedded v6 `.ko`.
+
+We explicitly DO NOT use `pickFirst` because it can silently package the
+wrong bootstrap, which is especially dangerous with a firmware-specific KO.
+The native build is still subject to a full CI compilation on GitHub Actions.
