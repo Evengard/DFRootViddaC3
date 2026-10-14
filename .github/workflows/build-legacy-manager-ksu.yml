@@ -1,10 +1,17 @@
 name: Build legacy DFRoot + Manager KernelSU (opt-in)
 on:
   workflow_dispatch:
+    inputs:
+      compile_ksu_candidate:
+        description: 'Also rebuild the pinned working-source KernelSU module (comparison artifact only)'
+        required: false
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
   legacy-manager-ksu:
+    # This job deliberately retains the working APK build and exact known-good .ko.
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -14,7 +21,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_legacy_first_stage.py' -v
           python3 -m unittest discover -s tests -p 'test_legacy_manager_ksu.py' -v
           bash -n tools/build-legacy-manager-ksu.sh
-      - name: Build opt-in integrated APK
+      - name: Build opt-in integrated APK (verified module only)
         run: bash tools/build-legacy-manager-ksu.sh
       - name: Upload APK and identity manifest
         if: always()
@@ -23,4 +30,27 @@ jobs:
           name: c3u-legacy-manager-ksu-${{ github.run_id }}
           path: dist-legacy-manager-ksu/
           if-no-files-found: error
+          retention-days: 30
+
+  reference-module-candidate:
+    # Independent from APK build. Failure here NEVER replaces or blocks its payload.
+    if: ${{ inputs.compile_ksu_candidate }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check archived-source reconstruction and build scripts
+        run: |
+          python3 -m unittest discover -s tests -p 'test_tested_ref_module_build.py' -v
+          bash -n tools/build-ksunext-tested-ref-candidate.sh
+          bash -n patches/ksunext/tested-revision/build-in-docker.sh
+      - name: Rebuild KernelSU from exact device-tested source revision
+        run: bash tools/build-ksunext-tested-ref-candidate.sh
+      - name: Upload isolated module candidate and comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c3u-ksunext-reference-candidate-${{ github.run_id }}
+          path: dist-ksunext-reference/
+          if-no-files-found: warn
           retention-days: 30

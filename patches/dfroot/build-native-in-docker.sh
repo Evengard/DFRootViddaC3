@@ -47,9 +47,25 @@ client="$artifacts/libdfrootsu.so"
   echo 'ERROR: fallback CMake dfrootsu target produced no libdfrootsu.so' >&2
   exit 1
 }
-readelf -h "$client" | grep -q 'Machine:.*AArch64' || {
-  echo 'ERROR: fallback libdfrootsu.so is not AArch64' >&2
+# A small portable ELF-header check. Android ARM64 binaries are ELF64,
+# little-endian and have e_machine=183 (EM_AARCH64). This works on macOS,
+# Linux hosts and inside the Docker builder without binutils/readelf.
+if ! python3 - "$client" <<'PY_ELF'
+import sys
+try:
+    with open(sys.argv[1], 'rb') as binary:
+        header = binary.read(20)
+except OSError:
+    sys.exit(1)
+valid = (len(header) == 20 and header[:4] == b'\x7fELF'
+         and header[4] == 2 and header[5] == 1
+         and int.from_bytes(header[18:20], 'little') == 183)
+sys.exit(0 if valid else 1)
+PY_ELF
+then
+  echo 'ERROR: fallback libdfrootsu.so is not AArch64 ELF64 little-endian' >&2
   exit 1
-}
+fi
 install -m 0644 "$client" "$stage/libdfrootsu.so"
-echo "Staged standalone client ONLY: libdfrootsu.so ($(stat -c %s "$client") bytes)"
+size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$client")"
+echo "Staged standalone client ONLY: libdfrootsu.so ($size bytes)"
