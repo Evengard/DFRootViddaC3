@@ -1,10 +1,11 @@
 # Vidda C3U — DFRoot + KernelSU Next, automated GitHub Actions builds
 
-> **v5.3 foreground-service patchset.** The latest successful GitHub Actions
+> **v5.4 unified UI/ADB foreground-service patchset.** The latest successful GitHub Actions
 > artifact included the actual DFRoot v3.1 `ExploitRunner.java`, which exposes
 > a UI-independent `run(Context, IReporter)` entrypoint. This repository now
-> adds a fail-closed stage that executes the exploit **inside an Android 14
-> foreground service worker**; the protected ADB Activity is only a launcher.
+> adds fail-closed patches that execute the exploit **inside an Android 14
+> foreground service worker**, regardless of whether the trigger comes from
+> the UI button or the protected ADB launcher.
 > The new path is source-reviewed but **not yet build- or device-tested**.
 > See [service migration details](docs/SERVICE-WORKER-MIGRATION.md).
 
@@ -181,13 +182,13 @@ tests/                                 offline tests
 
 This kit builds modified code from [DFRoot](https://github.com/diabl0w/DFRoot) and [KernelSU Next](https://github.com/KernelSU-Next/KernelSU-Next). Keep their original copyright and license notices. KernelSU Next's `/kernel` is GPL-2.0-only and other upstream components are GPL-3.0-or-later. The module and APK artifacts may have reciprocal source-distribution obligations; publish the exact patch sources and revision manifest alongside any binaries you distribute. See `NOTICE.md`.
 
-## v5.3 patchset maintenance
+## v5.4 patchset maintenance
 
 `patches/dfroot/patchset/series.json` is the ordered patch manifest. The main
 build calls `tools/inspect_dfroot_root_flow.py` immediately after checking out
 DFRoot and uploads its source report inside the build artifact. A separate
 **Inspect upstream DFRoot root execution** GitHub Actions workflow downloads
-only DFRoot v3.1 Java/JNI paths for the next service migration.
+only DFRoot v3.1 Java/JNI paths for auditing future updates.
 
 To check that the ZIP is internally consistent before creating your repo:
 
@@ -196,8 +197,10 @@ python3 tools/check-patchset.py
 python3 -m unittest discover -s tests -v
 ```
 
-The v5.3 root worker runs inside a foreground service; the brief ADB Activity
-only starts that service. This is **unattended, not a standalone executable**.
+The v5.4 worker runs inside a foreground service for both the UI Root button
+and ADB; the brief ADB Activity only starts that service. Root output is written
+to a bounded app-private log and displayed by the UI while open or reopened.
+This is **unattended, not a standalone executable**.
 It has not yet been tested on the C3U, and is deliberately not an automatic
 root-on-boot mechanism.
 
@@ -243,6 +246,13 @@ GitHub Actions runners remain ephemeral; the KSU compilation container and its
 module compilation are not currently cached. Upstream source and patch changes
 can invalidate caches. Builds remain **untested on the projector**.
 
-**Upgrading an existing GitHub repo:** overlay the small `DFRootViddaC3-CI-Fix-v5.2-patch.zip`
+**Upgrading an existing GitHub repo:** overlay the current v5.4 patch ZIP
 archive at the repository root, commit and push. Do not add the known-working
 KernelSU module to public CI unless you intend to publish that binary.
+
+
+### v5.4: Single worker for the UI Root button and ADB
+
+Both DFRoot's on-screen **Root** button and the protected `adb shell am start -n df.root/.C3UAdbRootActivity` intent start `C3URootForegroundService`. The same foreground worker calls upstream `ExploitRunner.run()` and publishes a bounded app-private log, which `MainActivity` shows live (and after reopening). No separate exploit executor runs inside `MainActivity`. The Activity can be closed without stopping a normal foreground-service operation.
+
+This is an experimental source patch and **has not been compiled into an APK or tested on the C3U**. KernelSU module compatibility, firmware checks, and build caches are unchanged.

@@ -11,14 +11,21 @@ The project is experimental and is not affiliated with the manufacturers or upst
 
 ## Explicit ADB root intent security
 
-The generated APK includes a permission-protected explicit Activity that initiates
-the existing DFRoot Root button action when invoked with `am start` by an
-authorized ADB shell. It has no implicit intent filter. Do not remove the
-`android.permission.DUMP` restriction or publish an unprotected root-trigger
-component. The current implementation intentionally starts the existing GUI
-Activity and is not a native/headless executable. A root exploit can still
-hang or crash the target device even if triggered correctly.
+The generated APK includes a permission-protected explicit Activity that starts
+a non-exported foreground service when invoked through `adb shell am start`.
+The Activity requires `android.permission.DUMP` and its request is accepted
+only with a one-use short-lived token. The UI Root button starts the same
+non-exported service with a separate same-application action. No exploit runs
+inside either Activity. Do not remove the permission or export the service.
 
-## Foreground service addition
+## Foreground service, logging and safety
 
-The optional ADB-triggered launcher uses a non-exported Android 14 specialUse foreground service and a notification for up to four minutes. It retains DFRoot while its pre-existing Activity-based Root handler runs; it does NOT make DirtyFrag executable from a background service alone or guarantee survival against OEM process killers. Sideload/Android TV testing is required. No boot-time automation is included.
+The specialUse Android 14 foreground service calls upstream DFRoot's existing
+`ExploitRunner.run()` from a worker thread, preserving native and IPsec resource
+lifetimes. A bounded partial wake lock and single-flight guard protect the
+operation; there are no automatic retries or boot-time loads.
+
+An app-private bounded text log allows the UI to display output live and after
+reopening. This does not guarantee survival against force-stop, watchdog reset
+or kernel crash. The source patch is offline-tested only; a full build and
+actual device behavior remain unverified.
