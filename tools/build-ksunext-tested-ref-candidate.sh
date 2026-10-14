@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build the chosen KernelSU Next ref (default: master), C3U patch, and ABI report.
+# Build the chosen KernelSU Next ref (default: dev), C3U patch, and ABI report.
 # This step never writes to known-good or installs anything on the projector.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-REF="${C3U_KSUN_REF:-master}"
+REF="${C3U_KSUN_REF:-dev}"
 REPO=https://github.com/KernelSU-Next/KernelSU-Next.git
 WORK="$ROOT/work-ksunext-reference/KernelSU-Next"
 DIST="$ROOT/dist-ksunext-reference"

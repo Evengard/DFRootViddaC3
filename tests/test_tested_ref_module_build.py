@@ -46,7 +46,7 @@ class TestReferenceCandidateCI(unittest.TestCase):
         shell = RUNNER.read_text()
         builder = BUILDER.read_text()
         apk = APK_RUNNER.read_text()
-        self.assertIn('REF="${C3U_KSUN_REF:-master}"', shell)
+        self.assertIn('REF="${C3U_KSUN_REF:-dev}"', shell)
         self.assertIn('git -C "$WORK" checkout -q --detach "$TARGET"', shell)
         self.assertIn('sha256sum -c working-v6.sha256', shell)
         self.assertIn('dist-ksunext-reference', shell)
@@ -77,7 +77,7 @@ class TestReferenceCandidateCI(unittest.TestCase):
                         runner.index('C3U_EMBED_REBUILT_KSU=1'))
         self.assertIn('push:', yml)
         self.assertIn('ksun_ref:', yml)
-        self.assertIn('default: master', yml)
+        self.assertIn('default: dev', yml)
         self.assertNotIn('pull_request:', yml)
         # Scripts are invoked through bash; no requirement to preserve +x in ZIPs.
         for f in (RUNNER, BUILDER, APK_RUNNER,

@@ -57,7 +57,7 @@ class AutobuiltIntegrationTests(unittest.TestCase):
             (dist / 'source-commit.txt').write_text(REF+'\n')
             (dist / 'layout-report.txt').write_text('offline targeted ABI checks passed\n')
             (dist / 'source-version.json').write_text(json.dumps({
-                'source_revision': REF, 'source_ref': 'master',
+                'source_revision': REF, 'source_ref': 'dev',
                 'version_code': CODE, 'git_commit_count': CODE - 30000,
                 'version_tag': TAG}))
             (dist / 'module-comparison.json').write_text(json.dumps({
@@ -97,7 +97,7 @@ class AutobuiltIntegrationTests(unittest.TestCase):
             write_apk(raw)
             (tmp / 'dist-ksunext-reference').mkdir()
             (tmp / 'dist-ksunext-reference/source-version.json').write_text(json.dumps({
-                'source_revision': REF, 'source_ref': 'master',
+                'source_revision': REF, 'source_ref': 'dev',
                 'version_code': CODE, 'git_commit_count': CODE - 30000,
                 'version_tag': TAG}))
             (tmp / 'dist-legacy-manager-ksu').mkdir()

@@ -101,7 +101,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('checkout', type=Path)
     ap.add_argument('output', type=Path)
-    ap.add_argument('--ref', default='master')
+    ap.add_argument('--ref', default='dev')
     args = ap.parse_args()
     try:
         apply(args.checkout, args.output, args.ref)
