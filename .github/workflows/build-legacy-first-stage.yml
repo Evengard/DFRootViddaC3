@@ -1,0 +1,25 @@
+name: Build legacy DFRoot first stage (diagnostic)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  legacy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify archived DFRoot first-stage inputs
+        run: |
+          python3 -m unittest discover -s tests -p 'test_legacy_first_stage.py' -v
+          bash -n tools/build-legacy-first-stage.sh
+      - name: Build opt-in first-stage diagnostic APK
+        run: bash tools/build-legacy-first-stage.sh
+      - name: Upload legacy diagnostic APK and manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c3u-legacy-first-stage-${{ github.run_id }}
+          path: dist-legacy/
+          if-no-files-found: warn
+          retention-days: 30
