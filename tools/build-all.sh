@@ -112,8 +112,10 @@ python3 "$ROOT/tools/manifest.py" \
 cat > "$DIST/README-READ-ME-FIRST.txt" <<'TXT'
 C3U CI ARTIFACTS — DO NOT INSTALL AUTOMATICALLY
 These builds are generated automatically and are NOT device-tested.
-The DFRoot integration remains experimental and needs an already installed,
-compatible /data/adb/ksud. NEVER flash the .ko or APK into a boot partition.
+The DFRoot integration remains experimental. The selected installed SU Manager
+must supply libksud.so, which DFRoot stages for both insmod and late-load.
+C3U ignores DFRoot's optional soft-reboot preference.
+NEVER flash the .ko or APK into a boot partition.
 Reboots, watchdog resets and permanent device failures are possible.
 The APK signing key may be ephemeral in GitHub Actions; backup app settings.
 Check build-manifest.json and validate on the exact C3U firmware manually.

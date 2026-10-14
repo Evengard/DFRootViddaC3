@@ -14,7 +14,33 @@ import sys
 
 TAG = "C3U_V7_KSU_PRELOAD"
 EMBEDDED_NAME = "c3u-ksunext-v6.ko"
+MANAGER_KSUD = "/data/user_de/0/df.root/ksud"
+LATE_LOAD_MARKER = "C3U_MANAGER_KSUD_LATE_LOAD"
 
+# Pinned upstream DFRoot v3.1 bootstrap.c late-load block. Abort instead of
+# guessing if upstream DFRoot changes its argument construction.
+ORIGINAL_LATE_LOAD = '''    char **late_load;
+    if (soft_reboot)
+        late_load = (char *[]){ KSUD, "late-load", "--package-name", su_manager, "--soft-reboot", NULL };
+    else
+        late_load = (char *[]){ KSUD, "late-load", "--package-name", su_manager, NULL };'''
+C3U_LATE_LOAD = '''    /* C3U_MANAGER_KSUD_LATE_LOAD: KernelSU Next v3.4.1 late-load has no
+     * soft-reboot flag. Preserve its normal module-init/mounting path. */
+    (void)soft_reboot; /* DFRoot's optional preference is ignored on C3U. */
+    char *late_load[] = { KSUD, "late-load", "--package-name", su_manager, NULL };'''
+
+
+def normalize_manager_ksud_late_load(bootstrap: str) -> str:
+    expected_define = f'#define KSUD       "{MANAGER_KSUD}"'
+    if bootstrap.count(expected_define) != 1:
+        raise ValueError("DFRoot KSUD path changed; cannot guarantee Manager-staged ksud is used")
+    if LATE_LOAD_MARKER in bootstrap:
+        if bootstrap.count(C3U_LATE_LOAD) != 1 or ORIGINAL_LATE_LOAD in bootstrap:
+            raise ValueError("Inconsistent C3U Manager ksud late-load patch")
+        return bootstrap
+    if bootstrap.count(ORIGINAL_LATE_LOAD) != 1:
+        raise ValueError("DFRoot v3.1 late-load command changed; refusing unsafe rewrite")
+    return bootstrap.replace(ORIGINAL_LATE_LOAD, C3U_LATE_LOAD, 1)
 
 def check_ko(path: Path) -> tuple[bytes, str]:
     data = path.read_bytes()
@@ -29,7 +55,6 @@ def check_ko(path: Path) -> tuple[bytes, str]:
     digest = hashlib.sha256(data).hexdigest()
     return data, digest
 
-
 def patch(repo: Path, source_ko: Path, source_dir: Path) -> None:
     jni = repo / "app/src/main/jni"
     bootstrap_path = jni / "bootstrap.c"
@@ -38,26 +63,25 @@ def patch(repo: Path, source_ko: Path, source_dir: Path) -> None:
     for p in (bootstrap_path, cmake_path, exp_path):
         if not p.is_file():
             raise ValueError(f"DFRoot checkout incomplete: {p}")
-
     data, sha256 = check_ko(source_ko)
     bootstrap = bootstrap_path.read_text()
     cmake = cmake_path.read_text()
     exploit = exp_path.read_text()
+    bootstrap = normalize_manager_ksud_late_load(bootstrap)
     if "C3U_ONLY_KMI_ANDROID14_5_15" not in exploit:
         raise ValueError("Run `python3 overlay/apply_overlay.py /path/to/DFRoot` (v3) first")
     if "dfroot_start_root_service" not in bootstrap or "touch(\"/dev/dfsue0\");" not in bootstrap:
         raise ValueError("Expected v3 C3U root service hook is absent. Apply v3 overlay first")
     if "touch(\"/dev/dfm6\");" not in bootstrap or "ksud" not in bootstrap:
         raise ValueError("Cannot verify DFRoot's normal ksud continuation; aborting")
-
     if TAG not in bootstrap:
         decl = "int c3u_ksu_preload(void); /* C3U_V7_KSU_PRELOAD */\n"
         if bootstrap.count("int main(void)") != 1:
             raise ValueError("Expected exactly one bootstrap main(void)")
         bootstrap = bootstrap.replace("int main(void)", decl + "\nint main(void)", 1)
-        # Run immediately after the ADB-only root service, before ANY
-        # pre-existing DFRoot ksud launch. This revision relies on the
-        # /data/adb/ksud that the user already has persistently installed.
+        # Run immediately after the independent root service, before ANY
+        # existing DFRoot ksud launch. Both paths use the Manager-staged
+        # device-protected ksud rather than a preinstalled /data/adb/ksud.
         # Do not anchor to /dev/dfm5: its position relative to executing
         # late-load is not a safe invariant across DFRoot versions.
         anchor = '    else touch("/dev/dfsue0");'
@@ -65,8 +89,8 @@ def patch(repo: Path, source_ko: Path, source_dir: Path) -> None:
             raise ValueError("Cannot locate expected root service anchor")
         injection = '''
     /* C3U_V7_KSU_PRELOAD: load the EXACT v6 KO before ANY stock late-load.
-     * Requires already installed /data/adb/ksud. Failure MUST NOT fall
-     * through to the stock module, which crashes this Hisense kernel. */
+     * Requires the ksud staged from the selected installed SU Manager.
+     * Failure MUST NOT fall through to an incompatible stock module. */
     if (c3u_ksu_preload() == 0) {
         touch("/dev/dfkc1");
     } else {
@@ -81,7 +105,6 @@ def patch(repo: Path, source_ko: Path, source_dir: Path) -> None:
             raise ValueError("Unexpected preload location; aborting")
         if bootstrap.index("c3u_ksu_preload()") > bootstrap.index('touch("/dev/dfm5")'):
             raise ValueError("Preload occurs after ksud-load marker; aborting")
-
     if "C3U_V7_KSU_PRELOAD" not in cmake:
         if "target_sources(bootstrap PRIVATE rootshell.c)" not in cmake:
             raise ValueError("Expected v3 CMake root shell target not found")
@@ -95,7 +118,6 @@ set_source_files_properties(c3u_ksu_preload.c PROPERTIES
     else:
         if cmake.count("c3u-ksunext-v6.ko") != 1:
             raise ValueError("v7 CMake patch is inconsistent")
-
     # All source transformations are validated before modifying the checkout.
     if bootstrap.count('touch("/dev/dfkc1")') != 1 or bootstrap.count('touch("/dev/dfke1")') != 1:
         raise ValueError("Invalid insertion: v7 markers not unique")
@@ -107,14 +129,12 @@ set_source_files_properties(c3u_ksu_preload.c PROPERTIES
             bootstrap.index('if (c3u_ksu_preload() == 0)') <
             bootstrap.index('touch("/dev/dfm2")')):
         raise ValueError("Preload is not at the guarded first-stage location")
-
     (jni / "ko").mkdir(parents=True, exist_ok=True)
     staged = jni / "ko" / EMBEDDED_NAME
     staged.write_bytes(data)
     shutil.copy2(source_dir / "c3u_ksu_preload.c", jni / "c3u_ksu_preload.c")
     bootstrap_path.write_text(bootstrap)
     cmake_path.write_text(cmake)
-
     manifest = {
         "purpose": "Vidda C3U KernelSU Next v6 embedded in DFRoot",
         "source_ko": str(source_ko),
@@ -124,14 +144,15 @@ set_source_files_properties(c3u_ksu_preload.c PROPERTIES
         "expected_kernel": "5.15.148-android14-11-g7b7674251b5d-dirty",
         "expected_fingerprint": "Hisense/VIDAA_TV/MT9655:14/UQ1A.240105.004.A1/07.02.70.202512281739:user/release-keys",
         "root_service_fallback": "libdfrootsu.so",
-        "preload_cmd": "ksud insmod <staged exact v6 .ko>",
-        "continuation": "existing DFRoot ksud late-load (skips embedded module when already loaded)",
+        "ksud_source": "installed selected SU Manager lib/arm64-v8a/libksud.so",
+        "ksud_staged_path": MANAGER_KSUD,
+        "preload_cmd": "Manager-staged ksud insmod <staged exact v6 .ko>",
+        "continuation": "same Manager-staged ksud late-load, without unsupported soft reboot option",
     }
     (jni / "c3u-v7-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Embedded v6 KernelSU .ko: {len(data):,} bytes")
     print(f"Embedded SHA-256: {sha256}")
     print("DFRoot bootstrap will fail closed if C3U module preload fails.")
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)

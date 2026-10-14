@@ -31,12 +31,11 @@
 #ifdef __ANDROID__
 #include <sys/system_properties.h>
 #endif
-
+#define C3U_MANAGER_KSUD "/data/user_de/0/df.root/ksud"
 #define C3U_MODULE_FILE "/data/user_de/0/df.root/c3u-ksunext-v6.ko"
 #define C3U_LOG_FILE "/data/user_de/0/df.root/c3u-v7-preload.log"
 #define C3U_EXACT_KERNEL "5.15.148-android14-11-g7b7674251b5d-dirty"
 #define C3U_EXACT_FINGERPRINT "Hisense/VIDAA_TV/MT9655:14/UQ1A.240105.004.A1/07.02.70.202512281739:user/release-keys"
-
 /* The .incbin input is copied in by the build script, never reconstructed. */
 __asm__(
     ".section .rodata\n"
@@ -49,7 +48,6 @@ __asm__(
     ".balign 16\n");
 extern const unsigned char c3u_v7_ksu_ko_begin[];
 extern const unsigned char c3u_v7_ksu_ko_end[];
-
 static void c3u_log(const char *fmt, ...) {
     char msg[420];
     va_list ap;
@@ -73,7 +71,6 @@ static void c3u_log(const char *fmt, ...) {
         close(fd);
     }
 }
-
 static bool c3u_is_permissive(void) {
     char buf[12];
     int fd = open("/sys/fs/selinux/enforce", O_RDONLY | O_CLOEXEC);
@@ -82,7 +79,6 @@ static bool c3u_is_permissive(void) {
     close(fd);
     return n > 0 && buf[0] == '0';
 }
-
 static bool c3u_is_live(void) {
     FILE *f = fopen("/proc/modules", "r");
     if (!f) return false;
@@ -97,7 +93,6 @@ static bool c3u_is_live(void) {
     fclose(f);
     return live;
 }
-
 static int c3u_write_embedded_ko(void) {
     uintptr_t start = (uintptr_t)c3u_v7_ksu_ko_begin;
     uintptr_t end = (uintptr_t)c3u_v7_ksu_ko_end;
@@ -129,7 +124,6 @@ static int c3u_write_embedded_ko(void) {
     c3u_log("Staged exact v6 KO (%zu bytes) at %s", size, C3U_MODULE_FILE);
     return 0;
 }
-
 static int c3u_run_insmod(const char *ksud_path) {
     pid_t child = fork();
     if (child == -1) return -1;
@@ -154,13 +148,11 @@ static int c3u_run_insmod(const char *ksud_path) {
     (void)waitpid(child, NULL, WNOHANG);
     return -1;
 }
-
 int c3u_ksu_preload(void) {
     if (geteuid() != 0 || getuid() != 0) {
         c3u_log("Refused: bootstrap is not UID 0");
         return 70;
     }
-
     struct utsname un;
     if (uname(&un) != 0 || strcmp(un.machine, "aarch64") != 0 ||
         strcmp(un.release, C3U_EXACT_KERNEL) != 0) {
@@ -183,16 +175,14 @@ int c3u_ksu_preload(void) {
         c3u_log("KernelSU is already live; allowing DFRoot late-load continuation");
         return 0;
     }
-
-    const char *candidates[] = {
-        "/data/adb/ksud" /* Installed during user’s previously successful v6 run */
-    };
-    const char *ksud = NULL;
-    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
-        if (access(candidates[i], X_OK) == 0) { ksud = candidates[i]; break; }
-    }
-    if (!ksud) {
-        c3u_log("Refused: /data/adb/ksud missing; requires prior working KernelSU userspace");
+    /* DFRoot has already copied libksud.so from the selected installed SU
+     * Manager to device-protected storage before the native exploit starts.
+     * Never fall back to /data/adb/ksud: that may be stale or incompatible. */
+    const char *ksud = C3U_MANAGER_KSUD;
+    struct stat ksud_stat;
+    if (lstat(ksud, &ksud_stat) != 0 || !S_ISREG(ksud_stat.st_mode) ||
+        access(ksud, X_OK) != 0) {
+        c3u_log("Refused: Manager-staged ksud missing, not regular, or not executable: %s", ksud);
         return 74;
     }
     if (c3u_write_embedded_ko() != 0) return 75;
