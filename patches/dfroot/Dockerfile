@@ -8,7 +8,7 @@ ENV ANDROID_SDK_ROOT=/opt/android-sdk
 ENV PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        bash ca-certificates curl git make python3 unzip zip \
+        bash ca-certificates curl git make python3 unzip zip ninja-build binutils \
         libstdc++6 zlib1g libgcc-s1 \
     && rm -rf /var/lib/apt/lists/*
 

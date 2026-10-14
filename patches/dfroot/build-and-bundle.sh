@@ -31,23 +31,9 @@ python3 "$SELF/overlay/apply_c3u_v7.py" "$DFROOT" "$KO"
 echo "=== Building the DFRoot APK ==="
 "$SELF/build-in-docker.sh" "$DFROOT"
 
-python3 - "$DFROOT" <<'PY'
-from pathlib import Path
-import json, sys, zipfile
-repo = Path(sys.argv[1]); manifest = json.loads((repo/'app/src/main/jni/c3u-v7-manifest.json').read_text())
-apk = repo/'out/DFRoot.apk'
-if not apk.is_file(): raise SystemExit('APK missing')
-# The custom blob is in bootstrap, which DFRoot embeds into libexp. The
-# resulting APK need not have a standalone .ko asset entry.
-with zipfile.ZipFile(apk) as z:
-    libs = [x for x in z.namelist() if x.endswith('/libexp.so')]
-    if not libs: raise SystemExit('APK lacks libexp.so; inspect Gradle output')
-    original_ko = (repo/'app/src/main/jni/ko/c3u-ksunext-v6.ko').read_bytes()
-    present = any(original_ko in z.read(lib) for lib in libs)
-    if not present:
-        raise SystemExit('FATAL: exact v6 KO bytes NOT found in APK libexp.so! Check bootstrap packaging.')
-print(f'APK: {apk}')
-print(f'Embedded v6 KO SHA-256: {manifest["sha256"]}')
-print('PASS: exact supplied v6 module bytes are embedded inside APK libexp.so.')
-print('NOTE: first boot/install test remains necessary; never enable auto-start before testing.')
-PY
+# Always validate FINAL packaged APK contents. The v6 KO is embedded inside
+# libexp.so (via bootstrap); it is not a standalone .ko entry in the APK.
+python3 "$SELF/../../tools/verify-apk-native.py" \
+  "$DFROOT/out/DFRoot.apk" \
+  --embedded-ko "$KO"
+echo "PASS: APK contains native DFRoot, root client and exact v6 kernel module"

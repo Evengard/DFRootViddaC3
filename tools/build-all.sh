@@ -90,7 +90,8 @@ if [[ "${C3U_ENABLE_ADB_INTENT:-1}" == 1 ]]; then
 fi
 
 echo '=== Applying DFRoot integration & building Android APK ==='
-"$ROOT/patches/dfroot/build-and-bundle.sh" "$WORK/DFRoot" "$KO"
+C3U_CI_CACHE_DIR="$ROOT/.ci-cache" \
+  "$ROOT/patches/dfroot/build-and-bundle.sh" "$WORK/DFRoot" "$KO"
 
 cp -f -- "$KO" "$DIST/KernelSU-Next-C3U-CANDIDATE.ko"
 cp -f -- "$WORK/DFRoot/out/DFRoot.apk" "$DIST/DFRoot-C3U-CANDIDATE.apk"

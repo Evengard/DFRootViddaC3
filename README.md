@@ -194,3 +194,31 @@ python3 -m unittest discover -s tests -v
 The build remains UI-assisted (even though ADB can trigger it); do not mark
 it as a fully headless exploit yet. This is deliberately not an automatic
 root-on-boot mechanism.
+
+## CI native-build fix and caches (v5)
+
+The initial workflow built the patched `android14-5.15` DFRoot kernel module,
+then called Gradle without compiling DFRoot's JNI/CMake libraries. The APK
+could be created without `libexp.so`. In v5, the Android Docker stage explicitly
+runs `patches/dfroot/build-native-in-docker.sh` **before** `assembleRelease` and
+stages the ARM64 CMake results into `app/src/main/jniLibs/arm64-v8a/`.
+
+The build now fails if the **final APK** lacks `libexp.so`, `libdfrootsu.so`, or
+its exact embedded C3U KernelSU module. CMake, Gradle and archive checks all
+happen automatically within the existing Actions workflow.
+
+Subsequent GitHub Actions builds restore three kinds of cache:
+
+- Gradle downloads and wrapper: `.ci-cache/gradle` via `actions/cache`.
+- Single-KMI DFRoot `.ko`: `.ci-cache/dfroot-ko`, keyed by upstream commit,
+  KMI, DDK image and LKM source hashes.
+- Android SDK Docker image layers: Buildx/GitHub Actions cache, scoped to
+  `c3u-android-sdk`.
+
+GitHub Actions runners remain ephemeral; the KSU compilation container and its
+module compilation are not currently cached. Upstream source and patch changes
+can invalidate caches. Builds remain **untested on the projector**.
+
+**Upgrading an existing GitHub repo:** overlay the small `CI-Fix-v5-patch.zip`
+archive at the repository root, commit and push. Do not add the known-working
+KernelSU module to public CI unless you intend to publish that binary.
