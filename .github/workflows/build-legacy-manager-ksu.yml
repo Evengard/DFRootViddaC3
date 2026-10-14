@@ -1,0 +1,26 @@
+name: Build legacy DFRoot + Manager KernelSU (opt-in)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  legacy-manager-ksu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify pinned binary inputs and second-stage tests
+        run: |
+          python3 -m unittest discover -s tests -p 'test_legacy_first_stage.py' -v
+          python3 -m unittest discover -s tests -p 'test_legacy_manager_ksu.py' -v
+          bash -n tools/build-legacy-manager-ksu.sh
+      - name: Build opt-in integrated APK
+        run: bash tools/build-legacy-manager-ksu.sh
+      - name: Upload APK and identity manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c3u-legacy-manager-ksu-${{ github.run_id }}
+          path: dist-legacy-manager-ksu/
+          if-no-files-found: error
+          retention-days: 30
