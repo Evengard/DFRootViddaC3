@@ -14,6 +14,9 @@ import sys
 
 TAG = "C3U_V7_KSU_PRELOAD"
 EMBEDDED_NAME = "c3u-ksunext-v6.ko"
+# Binary recovered from the user's archived C3U dev build. Do not accept other
+# builds solely on the strength of the generic SELinux marker.
+ARCHIVED_C3U_V6_SHA256 = "7b5374327b316ccb4e0c4271b938b664f193b7aeb3dd25bd9428976a6c08a38b"
 MANAGER_KSUD = "/data/user_de/0/df.root/ksud"
 LATE_LOAD_MARKER = "C3U_MANAGER_KSUD_LATE_LOAD"
 
@@ -48,11 +51,20 @@ def check_ko(path: Path) -> tuple[bytes, str]:
         raise ValueError("KO size is unexpected")
     if data[:5] != b"\x7fELF\x02" or data[5] != 1 or struct.unpack_from("<H", data, 18)[0] != 183:
         raise ValueError("Expected ARM64, ELF64, little-endian KernelSU .ko")
-    if b"C3U: preserving permissive SELinux" not in data:
-        raise ValueError("Not a v6 C3U permissive module (v6 marker absent). Never use the v5 KO")
+    digest = hashlib.sha256(data).hexdigest()
+    # Older device-development source used "Permissive SELinux, keeping".
+    # Accept it ONLY when its bytes equal the archived hash. The newer CI
+    # marker remains supported for separately identified experimental builds.
+    ci_marker = b"C3U: preserving permissive SELinux" in data
+    archived_marker = b"KernelSU: Permissive SELinux, keeping" in data
+    archived_match = archived_marker and digest == ARCHIVED_C3U_V6_SHA256
+    if not (ci_marker or archived_match):
+        raise ValueError(
+            "Not an accepted C3U permissive module: missing CI marker "
+            "or matching archived-module SHA-256"
+        )
     if b"vermagic=5.15." not in data:
         raise ValueError("Kernel version metadata missing")
-    digest = hashlib.sha256(data).hexdigest()
     return data, digest
 
 def patch(repo: Path, source_ko: Path, source_dir: Path) -> None:
