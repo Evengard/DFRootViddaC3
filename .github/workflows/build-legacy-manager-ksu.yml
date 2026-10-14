@@ -20,6 +20,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_legacy_manager_ksu.py' -v
           python3 -m unittest discover -s tests -p 'test_tested_ref_module_build.py' -v
           python3 -m unittest discover -s tests -p 'test_c3u_autobuilt_apk.py' -v
+          python3 -m unittest discover -s tests -p 'test_c3u_foreground_service.py' -v
           bash -n tools/build-c3u-autobuilt-apk.sh
           bash -n tools/build-ksunext-tested-ref-candidate.sh
           bash -n tools/build-legacy-manager-ksu.sh

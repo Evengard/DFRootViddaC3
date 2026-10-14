@@ -37,6 +37,7 @@ done
 printf '%s  %s\n' "$OLD_HELPER_SHA" "$HELPER" | sha256sum -c -
 ( cd "$ROOT/known-good" && sha256sum -c working-v6.sha256 )
 python3 -m unittest discover -s "$ROOT/tests" -p 'test_legacy_manager_ksu.py' -v
+python3 -m unittest discover -s "$ROOT/tests" -p 'test_c3u_foreground_service.py' -v
 mkdir -p "$(dirname "$WORK")" "$ROOT/.ci-cache/gradle-legacy-manager-ksu"
 rm -rf -- "$WORK" "$DIST"
 mkdir -p "$DIST"
@@ -46,6 +47,7 @@ git -C "$WORK" -c protocol.version=2 fetch -q --depth=1 origin "$OLD_REF"
 git -C "$WORK" checkout -q --detach FETCH_HEAD
 python3 "$ROOT/tools/prepare-legacy-first-stage.py" "$WORK"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_stage.py" "$WORK" "${STAGE_ARG[@]}"
+python3 "$ROOT/patches/dfroot/legacy-ksu/apply_foreground_service.py" "$WORK"
 
 # Only the userspace DFRoot app is built at this stage; the chosen .ko was
 # compiled in the preceding CI step. Do not regenerate the DFRoot helper.
@@ -96,6 +98,7 @@ with zipfile.ZipFile(apk) as z:
 print('PASS: original DFRoot helper, standalone root shell, and opt-in staging included')
 print('PASS: byte-exact SELECTED KernelSU module embedded in libc3uksu.so; NO ksud bundled')
 PY
+python3 "$ROOT/tools/verify-c3u-service-apk.py" "$APK"
 cp "$APK" "$DIST/$APK_NAME"
 python3 - "$DIST" "$OLD_REF" "$OLD_HELPER_SHA" "$SELECTED_KSU" "$MODULE_SELECTION" "$APK_NAME" <<'PY'
 import hashlib,json,sys
@@ -111,9 +114,13 @@ manifest={
   'ksud':{'source':'installed Manager libksud.so, staged by DFRoot (NOT bundled)',
           'required_sha256':'448155d297e0402ca577379131fc081387a4454392212c3b1567a9de0d58c974'},
   'apk':{'filename':apk.name, 'sha256':hashlib.sha256(apk.read_bytes()).hexdigest()},
-  'execution':{'legacy_activity':True,'independent_temporary_root_shell':True,
-               'kernelsu_requires_explicit_ui_button':True,
-               'no_boot_automatic_kernel_injection':True,
+  'execution':{'service_owned_exploit':True,'independent_temporary_root_shell':True,
+               'root_modes':['root-only','ksun'],
+               'adb_protected_with_android_permission_DUMP':True,
+               'boot_autostart_is_opt_in':True,
+               'default_boot_mode':'root-only',
+               'auto_manager':'com.rifsxd.ksunext',
+               'kernelsu_requires_explicit_ui_adb_or_boot_mode':True,
                'kernel_injection_after_original_late_load':True},
   'warning':'A rebuilt .ko is NOT automatically device-tested even if ABI checks pass. First verify Temporary Root Only.'
 }
