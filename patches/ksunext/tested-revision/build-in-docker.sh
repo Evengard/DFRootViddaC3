@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuild reference KernelSU source as a separate, unverified candidate.
+# Compile the selected upstream KernelSU ref after applying C3U compatibility changes.
 # Based on the builder archived with the module that worked on the C3U.
 # No insmod, no flashing, no APK modification, no device interaction.
 set -euo pipefail
@@ -12,12 +12,20 @@ KSU_REPO="$(cd "$1" && pwd -P)"
 OUT="$(cd "$2" && pwd -P)"
 [[ -f "$KSU_REPO/kernel/Makefile" && -f "$KSU_REPO/kernel/Kbuild" ]] || { echo 'Not a KernelSU checkout' >&2; exit 2; }
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+VERSION_JSON="$OUT/source-version.json"
+[[ -s "$VERSION_JSON" ]] || { echo 'Missing source-version.json (real upstream version required)' >&2; exit 1; }
+VERSION_TAG="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version_tag"])' "$VERSION_JSON")"
+VERSION_CODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version_code"])' "$VERSION_JSON")"
+[[ "$VERSION_TAG" == v*-viddaC3 && "$VERSION_CODE" =~ ^[0-9]+$ && "$VERSION_CODE" -ge 30000 ]] || {
+  echo 'Unexpected KernelSU version metadata; refusing build' >&2; exit 1;
+}
 LAYOUT_CHECK="$SCRIPT_DIR/../verify-module-layout.py"
 [[ -f "$LAYOUT_CHECK" ]] || { echo "Missing $LAYOUT_CHECK" >&2; exit 2; }
 # This is the exact DDK tag from the archived successful-module builder.
 IMAGE="ghcr.io/ylarod/ddk-min:android14-5.15-20260828"
 printf 'Reference rebuild image: %s\n' "$IMAGE"
 docker run --rm --platform linux/amd64 \
+  -e C3U_VERSION_TAG="$VERSION_TAG" -e C3U_VERSION_CODE="$VERSION_CODE" \
   -v "$KSU_REPO:/ksunext" -v "$OUT:/result" \
   -v "$LAYOUT_CHECK:/verify-module-layout.py:ro" \
   -w /ksunext/kernel "$IMAGE" /bin/bash -euo pipefail -c '
@@ -52,6 +60,14 @@ docker run --rm --platform linux/amd64 \
     rm -f check_symbol
     CONFIG_KSU=m CC=clang make -C "$KDIR" M="$PWD" src="$PWD" modules -j4
     test -s kernelsu.ko
+    # The version tag is returned through KernelSU kernel supercall API.
+    # Fail if the DDK fell back to v0.0.1 despite our Kbuild patch.
+    grep -aFq "$C3U_VERSION_TAG" kernelsu.ko || {
+      echo "Missing REAL KernelSU tag $C3U_VERSION_TAG in .ko" >&2; exit 1;
+    }
+    if grep -aFq "v0.0.1" kernelsu.ko; then
+      echo "Built module unexpectedly includes upstream v0.0.1 fallback tag" >&2; exit 1;
+    fi
     if ! grep -aFq "Permissive SELinux, keeping" kernelsu.ko; then
       echo "Missing device-tested permissive-preservation marker" >&2; exit 1;
     fi
@@ -75,5 +91,5 @@ docker run --rm --platform linux/amd64 \
     fi
     cp kernelsu.ko /result/KernelSU-Next-C3U-REBUILT-UNVERIFIED-DO-NOT-LOAD.ko
     sha256sum /result/KernelSU-Next-C3U-REBUILT-UNVERIFIED-DO-NOT-LOAD.ko > /result/rebuilt-module.sha256
-    echo "Offline candidate complete; this module has NOT been tested on device"
+    echo "Compiled C3U KernelSU: $C3U_VERSION_TAG ($C3U_VERSION_CODE); not automatically device-tested"
   '

@@ -42,16 +42,16 @@ class TestReferenceCandidateCI(unittest.TestCase):
             with self.subTest(invalid=invalid[:40]), self.assertRaises(ValueError):
                 p.modify(invalid)
 
-    def test_pinned_source_and_isolated_paths(self):
+    def test_dynamic_source_and_isolated_paths(self):
         shell = RUNNER.read_text()
         builder = BUILDER.read_text()
         apk = APK_RUNNER.read_text()
-        self.assertIn('REF=' + REF, shell)
-        self.assertIn('git -C "$WORK" checkout -q --detach FETCH_HEAD', shell)
+        self.assertIn('REF="${C3U_KSUN_REF:-master}"', shell)
+        self.assertIn('git -C "$WORK" checkout -q --detach "$TARGET"', shell)
         self.assertIn('sha256sum -c working-v6.sha256', shell)
         self.assertIn('dist-ksunext-reference', shell)
         self.assertIn('work-ksunext-reference', shell)
-        self.assertIn('apply-tested-selinux.py', shell)
+        self.assertIn('apply-c3u.py', shell)
         self.assertIn('ghcr.io/ylarod/ddk-min:android14-5.15-20260828', builder)
         self.assertIn('CONFIG_KSU=m CC=clang', builder)
         self.assertIn('python3 /verify-module-layout.py', builder)
@@ -75,7 +75,9 @@ class TestReferenceCandidateCI(unittest.TestCase):
         self.assertIn('verify-c3u-autobuilt-apk.py', runner)
         self.assertLess(runner.index('build-ksunext-tested-ref-candidate.sh'),
                         runner.index('C3U_EMBED_REBUILT_KSU=1'))
-        self.assertNotIn('push:', yml)
+        self.assertIn('push:', yml)
+        self.assertIn('ksun_ref:', yml)
+        self.assertIn('default: master', yml)
         self.assertNotIn('pull_request:', yml)
         # Scripts are invoked through bash; no requirement to preserve +x in ZIPs.
         for f in (RUNNER, BUILDER, APK_RUNNER,

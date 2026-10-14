@@ -1,7 +1,15 @@
 name: Build C3U APK (compile + embed KernelSU)
 
 on:
+  push:
+    branches: [master]
   workflow_dispatch:
+    inputs:
+      ksun_ref:
+        description: 'KernelSU Next upstream branch, tag, or commit to compile (default: master)'
+        type: string
+        required: false
+        default: master
 
 permissions:
   contents: read
@@ -10,6 +18,8 @@ jobs:
   compile-and-embed-kernelsu:
     runs-on: ubuntu-24.04
     timeout-minutes: 240
+    env:
+      C3U_KSUN_REF: ${{ github.event.inputs.ksun_ref || 'master' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -21,12 +31,13 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_tested_ref_module_build.py' -v
           python3 -m unittest discover -s tests -p 'test_c3u_autobuilt_apk.py' -v
           python3 -m unittest discover -s tests -p 'test_c3u_foreground_service.py' -v
+          python3 -m unittest discover -s tests -p 'test_c3u_dynamic_ref.py' -v
           bash -n tools/build-c3u-autobuilt-apk.sh
           bash -n tools/build-ksunext-tested-ref-candidate.sh
           bash -n tools/build-legacy-manager-ksu.sh
           bash -n patches/ksunext/tested-revision/build-in-docker.sh
 
-      - name: Compile pinned KernelSU module and embed it into legacy DFRoot APK
+      - name: Compile selected KernelSU ref and embed it into legacy DFRoot APK
         run: bash tools/build-c3u-autobuilt-apk.sh
 
       - name: Verify final APK contains the just-built module

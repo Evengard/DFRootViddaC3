@@ -17,6 +17,8 @@ GOOD = ROOT / 'known-good/working-v6.ko'
 REF = '78ed5d1f5b5041a197f0b55291876d62a6bd7c67'
 GOOD_SHA = '7b5374327b316ccb4e0c4271b938b664f193b7aeb3dd25bd9428976a6c08a38b'
 NAME = 'KernelSU-Next-C3U-REBUILT-UNVERIFIED-DO-NOT-LOAD.ko'
+TAG = 'v3.4.2-viddaC3'
+CODE = 33355
 
 
 def imported(path: Path, key: str):
@@ -47,13 +49,17 @@ class AutobuiltIntegrationTests(unittest.TestCase):
             dist.mkdir()
             # Append inert bytes to the known-good ELF for a *file-handling*
             # regression case only. This is NOT a loadable/device-tested module.
-            blob = GOOD.read_bytes() + b'COMPILER_OUTPUT_TEST_PAD'
+            blob = GOOD.read_bytes() + b'COMPILER_OUTPUT_TEST_PAD' + TAG.encode()
             rebuilt = dist / NAME
             rebuilt.write_bytes(blob)
             sha = hashlib.sha256(blob).hexdigest()
             (dist / 'rebuilt-module.sha256').write_text(f'{sha}  {NAME}\n')
             (dist / 'source-commit.txt').write_text(REF+'\n')
             (dist / 'layout-report.txt').write_text('offline targeted ABI checks passed\n')
+            (dist / 'source-version.json').write_text(json.dumps({
+                'source_revision': REF, 'source_ref': 'master',
+                'version_code': CODE, 'git_commit_count': CODE - 30000,
+                'version_tag': TAG}))
             (dist / 'module-comparison.json').write_text(json.dumps({
                 'source_revision': REF,
                 'rebuilt_candidate': {'sha256': sha, 'vermagic': '5.15.202'},
@@ -79,7 +85,7 @@ class AutobuiltIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             ko = tmp / 'compiled.ko'
-            ko.write_bytes(GOOD.read_bytes())
+            ko.write_bytes(GOOD.read_bytes() + TAG.encode())
             raw = ko.read_bytes()
             apk = tmp / 'assembled.apk'
             def write_apk(payload):
@@ -89,11 +95,18 @@ class AutobuiltIntegrationTests(unittest.TestCase):
                     for lib in ('libbootstrap.so', 'libdfroot.so', 'libdfrootsu.so'):
                         z.writestr('lib/arm64-v8a/' + lib, b'placeholder')
             write_apk(raw)
-            manifest = tmp / 'build-manifest.json'
+            (tmp / 'dist-ksunext-reference').mkdir()
+            (tmp / 'dist-ksunext-reference/source-version.json').write_text(json.dumps({
+                'source_revision': REF, 'source_ref': 'master',
+                'version_code': CODE, 'git_commit_count': CODE - 30000,
+                'version_tag': TAG}))
+            (tmp / 'dist-legacy-manager-ksu').mkdir()
+            manifest = tmp / 'dist-legacy-manager-ksu/build-manifest.json' 
             def write_manifest():
                 manifest.write_text(json.dumps({
                     'kernelsu': {'selection': 'ci-compiled-unverified',
-                                 'source_revision': REF, 'sha256': hashlib.sha256(raw).hexdigest(),
+                                 'source_revision': REF, 'version_tag': TAG, 'version_code': CODE,
+                                 'sha256': hashlib.sha256(raw).hexdigest(),
                                  'bytes': len(raw)},
                     'apk': {'sha256': hashlib.sha256(apk.read_bytes()).hexdigest()},
                 }))

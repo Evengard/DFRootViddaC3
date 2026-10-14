@@ -48,6 +48,7 @@ git -C "$WORK" checkout -q --detach FETCH_HEAD
 python3 "$ROOT/tools/prepare-legacy-first-stage.py" "$WORK"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_stage.py" "$WORK" "${STAGE_ARG[@]}"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_foreground_service.py" "$WORK"
+python3 "$ROOT/patches/dfroot/legacy-ksu/apply_tv_settings.py" "$WORK"
 
 # Only the userspace DFRoot app is built at this stage; the chosen .ko was
 # compiled in the preceding CI step. Do not regenerate the DFRoot helper.
@@ -108,9 +109,10 @@ manifest={
   'status': 'device_test_required' if sys.argv[5]=='pinned-device-tested' else 'CI_REBUILT_UNVERIFIED_DEVICE_TEST_REQUIRED',
   'dfroot':{'ref':sys.argv[2], 'helper_sha256':sys.argv[3]},
   'kernelsu':{'selection':sys.argv[5], 'sha256':hashlib.sha256(ko.read_bytes()).hexdigest(),
-              'bytes':ko.stat().st_size, 'source_revision':
-              '78ed5d1f5b5041a197f0b55291876d62a6bd7c67' if sys.argv[5]=='ci-compiled-unverified'
-              else 'device-tested-binary'},
+              'bytes':ko.stat().st_size,
+              **(json.loads((out.parent/'dist-ksunext-reference/source-version.json').read_text())
+                 if sys.argv[5]=='ci-compiled-unverified'
+                 else {'source_revision':'device-tested-binary','version_tag':'legacy-tested','version_code':None})},
   'ksud':{'source':'installed Manager libksud.so, staged by DFRoot (NOT bundled)',
           'required_sha256':'448155d297e0402ca577379131fc081387a4454392212c3b1567a9de0d58c974'},
   'apk':{'filename':apk.name, 'sha256':hashlib.sha256(apk.read_bytes()).hexdigest()},

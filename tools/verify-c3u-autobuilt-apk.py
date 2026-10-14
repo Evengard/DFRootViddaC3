@@ -9,7 +9,6 @@ from pathlib import Path
 import zipfile
 
 KNOWN_GOOD_SHA = '7b5374327b316ccb4e0c4271b938b664f193b7aeb3dd25bd9428976a6c08a38b'
-REF = '78ed5d1f5b5041a197f0b55291876d62a6bd7c67'
 
 
 def digest(data: bytes) -> str:
@@ -23,8 +22,14 @@ def verify(apk: Path, ko: Path, manifest: Path) -> str:
     module = info.get('kernelsu', {})
     if module.get('selection') != 'ci-compiled-unverified':
         raise ValueError('APK was NOT built in freshly compiled module mode')
-    if module.get('source_revision') != REF:
-        raise ValueError('Wrong KernelSU compilation source revision')
+    version_file = manifest.parent.parent / 'dist-ksunext-reference/source-version.json'
+    if not version_file.is_file():
+        raise ValueError('Missing selected KernelSU source/version attestation')
+    source = json.loads(version_file.read_text())
+    if (module.get('source_revision') != source.get('source_revision')
+            or module.get('version_tag') != source.get('version_tag')
+            or module.get('version_code') != source.get('version_code')):
+        raise ValueError('APK manifest does not match selected upstream version')
     content = ko.read_bytes()
     sha = digest(content)
     if module.get('sha256') != sha or module.get('bytes') != len(content):
@@ -33,6 +38,8 @@ def verify(apk: Path, ko: Path, manifest: Path) -> str:
         raise ValueError('Final APK bytes differ from build manifest')
     with zipfile.ZipFile(apk) as z:
         native = z.read('lib/arm64-v8a/libc3uksu.so')
+        if source['version_tag'].encode('ascii') not in content:
+            raise ValueError('Fresh module does not advertise selected KernelSU version tag')
         if native.count(content) != 1:
             raise ValueError('APK does not contain EXACTLY ONE byte-identical rebuilt .ko in libc3uksu.so')
         # Ensure normal first-stage loader and the independent root-shell client

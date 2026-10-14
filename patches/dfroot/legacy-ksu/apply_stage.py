@@ -313,8 +313,6 @@ def select_module(package_root: Path, *, compiled: bool = False) -> Path:
     if not all(f.is_file() and f.stat().st_size > 0
                for f in (candidate, checksum, revision, layout, report)):
         raise ValueError('Compiled module or required build attestations are missing; NEVER fall back')
-    if revision.read_text().strip() != TESTED_REVISION:
-        raise ValueError('Compiled KernelSU module did not use the pinned device-tested source revision')
     expected_hash = checksum.read_text().split()[0].lower()
     actual_hash = sha256(candidate)
     if len(expected_hash) != 64 or any(c not in '0123456789abcdef' for c in expected_hash):
@@ -330,8 +328,25 @@ def select_module(package_root: Path, *, compiled: bool = False) -> Path:
             and blob.count(b'Permissive SELinux, keeping') >= 1
             and b'vermagic=' in blob):
         raise ValueError('Compiled module fails basic ARM64 ELF / permissive SELinux checks')
+    version_file = dist / 'source-version.json'
+    if not version_file.is_file():
+        raise ValueError('Missing upstream source/version attestation')
+    metadata = json.loads(version_file.read_text())
+    source_sha = revision.read_text().strip()
+    if metadata.get('source_revision') != source_sha or not __import__('re').fullmatch(r'[0-9a-f]{40}', source_sha):
+        raise ValueError('Rebuilt source revision not attested')
+    code = metadata.get('version_code')
+    count = metadata.get('git_commit_count')
+    tag = metadata.get('version_tag')
+    if (not isinstance(code, int) or not isinstance(count, int)
+            or code != 30000 + count or code < 31000
+            or not isinstance(tag, str) or not __import__('re').fullmatch(
+                r'v[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9._-]+)?-viddaC3', tag)):
+        raise ValueError('Invalid upstream KernelSU version metadata')
+    if tag.encode('ascii') not in blob:
+        raise ValueError('Compiled ELF does not contain selected real upstream tag')
     comparison = json.loads(report.read_text())
-    if comparison.get('source_revision') != TESTED_REVISION:
+    if comparison.get('source_revision') != source_sha:
         raise ValueError('Comparison was generated for the wrong KernelSU source revision')
     if comparison.get('rebuilt_candidate', {}).get('sha256') != actual_hash:
         raise ValueError('Comparison report does not match rebuilt module')

@@ -113,7 +113,7 @@ def metadata(path: Path) -> dict:
     }
 
 
-def compare(known: Path, candidate: Path) -> dict:
+def compare(known: Path, candidate: Path, source_revision: str = TESTED_SOURCE) -> dict:
     good = metadata(known)
     if good['sha256'] != KNOWN_GOOD_SHA:
         raise ValueError(f'Reference module is not the device-tested binary: {good["sha256"]}')
@@ -123,7 +123,7 @@ def compare(known: Path, candidate: Path) -> dict:
     match = good['sha256'] == built['sha256']
     return {
         'status': 'byte_identical_to_tested_module' if match else 'candidate_differs_UNVERIFIED',
-        'source_revision': TESTED_SOURCE,
+        'source_revision': source_revision,
         'ddk_image_tag': DDK_IMAGE,
         'device_tested_known_good': good,
         'rebuilt_candidate': built,
@@ -173,11 +173,12 @@ def main() -> None:
     parser.add_argument('--known', type=Path, required=True)
     parser.add_argument('--candidate', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--source-revision', default=TESTED_SOURCE)
     args = parser.parse_args()
     for f in (args.known, args.candidate):
         if not f.is_file() or f.stat().st_size < 1024:
             parser.error(f'Missing or suspiciously small ELF module: {f}')
-    result = compare(args.known, args.candidate)
+    result = compare(args.known, args.candidate, args.source_revision)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / 'module-comparison.json').write_text(json.dumps(result, indent=2) + '\n')
     (args.output / 'module-comparison.md').write_text(markdown(result))

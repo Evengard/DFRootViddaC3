@@ -31,11 +31,11 @@ class LegacyManagerKsuTests(unittest.TestCase):
         self.assertIn('ko/c3u-working-v6.ko', native)
         self.assertNotIn('07c12cee5bbe68c989dd4edc3189dfba6832ca0f73ff1be90727da8a0a1869c3', native)
 
-    def test_manual_workflow_keeps_original_first_stage(self):
+    def test_auto_or_manual_workflow_keeps_original_first_stage(self):
         workflow = (ROOT / '.github/workflows/build-legacy-manager-ksu.yml').read_text()
         script = (ROOT / 'tools/build-legacy-manager-ksu.sh').read_text()
         self.assertIn('workflow_dispatch:', workflow)
-        self.assertNotIn('push:', workflow)
+        self.assertIn('push:', workflow)
         self.assertNotIn('pull_request:', workflow)
         self.assertIn('prepare-legacy-first-stage.py', script)
         self.assertIn('apply_stage.py', script)
