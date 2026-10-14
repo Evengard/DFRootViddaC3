@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs INSIDE the Android build container, after the single DFRoot KO and the
-# C3U bootstrap patches have been staged. Gradle alone does not build these
-# CMake targets in the pinned upstream DFRoot layout.
+# C3U bootstrap patches have been staged. The pinned DFRoot v3.1 native target
+# names are libdfroot.so (exploit), libbootstrap.so (privileged stage), and
+# libdfrootsu.so (temporary-root CLI). There is NO libexp.so target.
 set -euo pipefail
 if [[ $# -ne 1 ]]; then
   echo "Usage: $0 /path/to/DFRoot" >&2
@@ -26,7 +27,7 @@ cmake="${C3U_CMAKE:-$ANDROID_HOME/cmake/3.22.1/bin/cmake}"
 mkdir -p "$stage" "$build" "$artifacts"
 # Fail rather than accidentally packaging binaries left over from a different
 # checkout/configuration. This checkout is fresh on each CI run.
-rm -f "$stage/libexp.so" "$stage/libdfrootsu.so"
+rm -f "$stage/libexp.so" "$stage/libdfroot.so" "$stage/libbootstrap.so" "$stage/libdfrootsu.so"
 
 # -Wa,-I points Clang's integrated assembler at the JNI source directory for
 # the .incbin KO/payload assets used by DFRoot. CMake may also declare its own
@@ -63,15 +64,19 @@ while IFS= read -r -d '' candidate; do
   count=$((count+1))
 done < <(find "$artifacts" "$build" "$jni" -type f -name 'lib*.so' -print0 | sort -zu)
 
-if [[ ! -s "$stage/libexp.so" ]]; then
-  echo 'ERROR: native CMake produced no libexp.so for arm64-v8a.' >&2
-  echo 'Native outputs found:' >&2
-  find "$build" "$jni" -type f \( -name '*.so' -o -name 'CMakeCache.txt' \) -print >&2
-  exit 1
-fi
-if [[ ! -s "$stage/libdfrootsu.so" ]]; then
-  echo 'ERROR: patched native build did not produce libdfrootsu.so.' >&2
-  find "$build" -type f -name 'lib*.so' -print >&2
+# Require actual upstream v3.1 targets, not the obsolete libexp.so name.
+# c3u_ksu_preload.c is compiled into bootstrap; that is where the embedded
+# KernelSU module bytes reside, NOT in libdfroot.so.
+for required in libdfroot.so libbootstrap.so libdfrootsu.so; do
+  if [[ ! -s "$stage/$required" ]]; then
+    echo "ERROR: native CMake did not produce $required for arm64-v8a." >&2
+    echo 'Native outputs found:' >&2
+    find "$build" "$jni" -type f \( -name '*.so' -o -name 'CMakeCache.txt' \) -print >&2
+    exit 1
+  fi
+done
+if [[ -e "$stage/libexp.so" ]]; then
+  echo 'ERROR: obsolete libexp.so unexpectedly staged; check upstream version.' >&2
   exit 1
 fi
 printf 'Native build succeeded: %d ELF files staged; APK packaging can proceed.\n' "$count"

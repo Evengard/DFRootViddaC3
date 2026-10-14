@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Fail-closed inspection of the final DFRoot C3U APK and embedded KernelSU KO.
 
+DFRoot v3.1 creates libdfroot.so and libbootstrap.so; C3U's exact v6 KO is
+linked into libbootstrap.so (c3u_ksu_preload.c), not a libexp.so target.
+
 This checks APK bytes, NOT merely the Gradle/CMake output directory.
 """
 from __future__ import annotations
@@ -10,7 +13,8 @@ import sys
 import zipfile
 
 REQUIRED = (
-    'lib/arm64-v8a/libexp.so',
+    'lib/arm64-v8a/libdfroot.so',
+    'lib/arm64-v8a/libbootstrap.so',
     'lib/arm64-v8a/libdfrootsu.so',
 )
 
@@ -35,10 +39,10 @@ def verify(apk: Path, ko: Path | None = None) -> None:
             data = ko.read_bytes()
             if len(data) < 65536 or not data.startswith(b'\x7fELF'):
                 raise ValueError(f'Invalid KernelSU module: {ko}')
-            if data not in z.read('lib/arm64-v8a/libexp.so'):
-                raise ValueError('Exact C3U KernelSU .ko not found in APK libexp.so; '
+            if data not in z.read('lib/arm64-v8a/libbootstrap.so'):
+                raise ValueError('Exact C3U KernelSU .ko not found in APK libbootstrap.so; '
                                  'check native bootstrap linkage and stripping')
-            print('PASS: exact supplied KernelSU module bytes found in packaged libexp.so')
+            print('PASS: exact supplied KernelSU module bytes found in packaged libbootstrap.so')
     print('PASS: required C3U native ELF files are present in APK')
 
 

@@ -195,15 +195,17 @@ The build remains UI-assisted (even though ADB can trigger it); do not mark
 it as a fully headless exploit yet. This is deliberately not an automatic
 root-on-boot mechanism.
 
-## CI native-build fix and caches (v5)
+## CI native-build fix and caches (v5.1)
 
 The initial workflow built the patched `android14-5.15` DFRoot kernel module,
-then called Gradle without compiling DFRoot's JNI/CMake libraries. The APK
-could be created without `libexp.so`. In v5, the Android Docker stage explicitly
+then called Gradle without compiling DFRoot's JNI/CMake libraries. The v5
+follow-up built the native targets but erroneously demanded a nonexistent
+`libexp.so`; v5.1 corrects the packaging checks to match DFRoot v3.1. The APK
+could be created without the exploit executable (`libdfroot.so`). In v5.1, the Android Docker stage explicitly
 runs `patches/dfroot/build-native-in-docker.sh` **before** `assembleRelease` and
 stages the ARM64 CMake results into `app/src/main/jniLibs/arm64-v8a/`.
 
-The build now fails if the **final APK** lacks `libexp.so`, `libdfrootsu.so`, or
+The build now fails if the **final APK** lacks `libdfroot.so`, `libbootstrap.so`, `libdfrootsu.so`, or
 its exact embedded C3U KernelSU module. CMake, Gradle and archive checks all
 happen automatically within the existing Actions workflow.
 

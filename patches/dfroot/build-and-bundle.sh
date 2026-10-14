@@ -31,8 +31,9 @@ python3 "$SELF/overlay/apply_c3u_v7.py" "$DFROOT" "$KO"
 echo "=== Building the DFRoot APK ==="
 "$SELF/build-in-docker.sh" "$DFROOT"
 
-# Always validate FINAL packaged APK contents. The v6 KO is embedded inside
-# libexp.so (via bootstrap); it is not a standalone .ko entry in the APK.
+# Always validate FINAL packaged APK contents. The exact v6 KO is embedded
+# into libbootstrap.so by c3u_ksu_preload.c, not into libdfroot.so or a
+# nonexistent libexp.so. It is not a standalone .ko APK entry.
 python3 "$SELF/../../tools/verify-apk-native.py" \
   "$DFROOT/out/DFRoot.apk" \
   --embedded-ko "$KO"
