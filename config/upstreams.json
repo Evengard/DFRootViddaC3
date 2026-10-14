@@ -1,7 +1,7 @@
 {
   "kernelsu_next": {
     "repository": "KernelSU-Next/KernelSU-Next",
-    "ref": "v3.4.1"
+    "ref": "v3.4.2"
   },
   "dfroot": {
     "repository": "diabl0w/DFRoot",
