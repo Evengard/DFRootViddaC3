@@ -1,0 +1,14 @@
+{
+  "kernelsu_next": {
+    "repository": "KernelSU-Next/KernelSU-Next",
+    "ref": "v3.4.1"
+  },
+  "dfroot": {
+    "repository": "diabl0w/DFRoot",
+    "ref": "v3.1"
+  },
+  "kmi": "android14-5.15",
+  "ddk_image": "ghcr.io/ylarod/ddk-min:android14-5.15-20260828",
+  "target_kernel": "5.15.148-android14-11-g7b7674251b5d-dirty",
+  "target_fingerprint": "Hisense/VIDAA_TV/MT9655:14/UQ1A.240105.004.A1/07.02.70.202512281739:user/release-keys"
+}

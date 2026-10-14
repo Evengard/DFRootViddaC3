@@ -1,0 +1,38 @@
+name: Inspect upstream DFRoot root execution
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - ".github/workflows/inspect-upstream-dfroot.yml"
+      - "tools/inspect_dfroot_root_flow.py"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect-upstream:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: c3u-repo
+      - name: Checkout exact DFRoot release
+        uses: actions/checkout@v4
+        with:
+          repository: diabl0w/DFRoot
+          ref: v3.1
+          path: upstream/DFRoot
+          persist-credentials: false
+      - name: Analyze Java and JNI entrypoints
+        run: |
+          python3 c3u-repo/tools/inspect_dfroot_root_flow.py \
+            upstream/DFRoot \
+            dfroot-source-report
+          echo "Upstream commit: $(git -C upstream/DFRoot rev-parse HEAD)"
+      - name: Upload source and report for service refactor
+        uses: actions/upload-artifact@v4
+        with:
+          name: dfroot-v3.1-root-flow-source
+          path: dfroot-source-report/
+          if-no-files-found: error
+          retention-days: 14

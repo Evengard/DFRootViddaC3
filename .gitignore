@@ -1,0 +1,16 @@
+# Fetched third-party source and generated local/CI builds.
+work/
+dist/
+*.pyc
+__pycache__/
+.DS_Store
+*.log
+# Do not accidentally commit signed APKs or private signing keys.
+*.apk
+*.jks
+*.keystore
+*.pem
+*.p12
+# The only optional binary deliberately allowed is a verified known-good module.
+*.ko
+!known-good/working-v6.ko

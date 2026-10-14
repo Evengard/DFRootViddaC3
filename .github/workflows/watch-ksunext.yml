@@ -1,0 +1,63 @@
+name: Check upstream KernelSU Next
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      new_candidate: ${{ steps.branch.outputs.new_candidate }}
+      new_tag: ${{ steps.upstream.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Check latest published stable KernelSU Next release
+        id: upstream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/check-upstream.py --apply
+      - name: Open review PR (never auto-merge)
+        id: branch
+        if: steps.upstream.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.upstream.outputs.new_tag }}
+          OLD: ${{ steps.upstream.outputs.previous_tag }}
+          RELEASE_URL: ${{ steps.upstream.outputs.release_url }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="automation/ksunext-${TAG}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "Update branch already exists: $branch"
+            echo 'new_candidate=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git add config/upstreams.json
+          git commit -m "build: propose KernelSU Next ${TAG} for C3U"
+          git push --set-upstream origin "$branch"
+          gh pr create \
+            --base "$DEFAULT_BRANCH" --head "$branch" \
+            --title "KernelSU Next ${TAG}: C3U candidate (requires hardware testing)" \
+            --body "Automated upstream update from ${OLD} to ${TAG}. Release: ${RELEASE_URL}. A CI compile and offline ABI validation will run. **Do not merge or load on the device until manually validated.** This PR never flashes or automatically deploys to the projector. The build uses the existing C3U permissive SELinux patch and KMI settings."
+          echo 'new_candidate=true' >> "$GITHUB_OUTPUT"
+  candidate-build:
+    needs: check
+    if: needs.check.outputs.new_candidate == 'true'
+    # PR created with GITHUB_TOKEN does not automatically trigger a new push/PR
+    # workflow, so explicitly compile the proposed upstream tag here.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build.yml
+    with:
+      ksu_ref_override: ${{ needs.check.outputs.new_tag }}
+      use_known_good: false
