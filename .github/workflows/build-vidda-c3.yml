@@ -29,6 +29,7 @@ jobs:
           bash -n tools/build-vidda-c3.sh
           bash -n tools/build-kernelsu.sh
           bash -n tools/build-dfroot.sh
+          bash -n tools/build-dfroot-helper.sh
           bash -n patches/ksunext/build-in-docker.sh
       - name: Compile and embed KernelSU Next in Vidda C3 Root APK
         env:

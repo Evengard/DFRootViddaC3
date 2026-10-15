@@ -1,0 +1,10 @@
+{
+  "dfroot_commit": "6de62220809a678fddbd3819e4fcb3bb68aa1eae",
+  "module_kmi": "android14-5.15",
+  "ddk_image_tag": "ghcr.io/ylarod/ddk-min:android14-5.15-20260828",
+  "source_sha256": "1a661b6231030d3ccc1578345825831825baf1e966be2bde498f6d8d8e8ac0e6",
+  "makefile_sha256": "e7708a6338001960c1155c21e500c8f98aeb60c800effe56efa1d5137659306f",
+  "device_tested_module_sha256": "5135155128a90947e6ec341c36ce4b7169bdfe68f363341c9d0ed9568c60e473",
+  "device_tested_module_bytes": 12232,
+  "policy": "Build helper from pinned commit using archived DDK command; fail if bytes differ from device-tested module; no static .ko in Git"
+}

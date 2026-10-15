@@ -45,23 +45,36 @@ class ViddaC3SingleBuild(unittest.TestCase):
         self.assertIn('prepare-apk-signing.py" --check', sh)
         self.assertIn('verify-vidda-c3-apk.py', sh)
 
-    def test_static_ksu_is_removed_but_proven_dfroot_helper_remains(self):
+    def test_both_modules_are_source_built_and_helper_is_checked_against_original(self):
         self.assertFalse((ROOT/'known-good/working-v6.ko').exists())
         self.assertFalse((ROOT/'known-good/working-v6.sha256').exists())
-        helper = ROOT/'assets/dfroot-helper-6de6222.ko'
-        self.assertEqual(hashlib.sha256(helper.read_bytes()).hexdigest(), TRUSTED_DFROOT_SHA)
-        self.assertEqual(helper.stat().st_size, 12232)
+        self.assertFalse((ROOT/'assets/dfroot-helper-6de6222.ko').exists())
+        self.assertFalse((ROOT/'assets/dfroot-helper-6de6222.sha256').exists())
+        helper_baseline = json.loads((ROOT/'config/dfroot-helper-baseline.json').read_text())
+        self.assertEqual(helper_baseline['device_tested_module_sha256'], TRUSTED_DFROOT_SHA)
+        self.assertEqual(helper_baseline['device_tested_module_bytes'], 12232)
+        self.assertEqual(helper_baseline['source_sha256'], '1a661b6231030d3ccc1578345825831825baf1e966be2bde498f6d8d8e8ac0e6')
+        self.assertEqual(helper_baseline['makefile_sha256'], 'e7708a6338001960c1155c21e500c8f98aeb60c800effe56efa1d5137659306f')
+        helper_build = (ROOT/'tools/build-dfroot-helper.sh').read_text()
+        for expected in ('docker run', 'make -j', 'llvm-objcopy --strip-unneeded',
+                         'android14-5.15-20260828', 'device_tested_module_sha256',
+                         'source_sha256', 'makefile_sha256'):
+            self.assertIn(expected, helper_build)
+        wrapper = (ROOT/'tools/build-dfroot.sh').read_text()
+        self.assertIn('6de62220809a678fddbd3819e4fcb3bb68aa1eae', wrapper)
+        self.assertLess(wrapper.index('prepare-dfroot.py'), wrapper.index('build-dfroot-helper.sh'))
+        self.assertLess(wrapper.index('build-dfroot-helper.sh'), wrapper.index('apply_stage.py'))
+        self.assertLess(wrapper.index('build-dfroot-helper.sh'), wrapper.index('assembleRelease'))
+        self.assertIn('ViddaC3-DFRoot-Helper.ko', wrapper)
+        self.assertIn('ViddaC3-KernelSU-Next.ko', wrapper)
+        self.assertNotIn('assets/dfroot-helper-6de6222.ko', wrapper)
+        self.assertNotIn('GOOD_KSU', wrapper)
+        self.assertIn("500000 + int(env['GITHUB_RUN_NUMBER'])", (ROOT/'tools/prepare-apk-signing.py').read_text())
         baseline = json.loads(BASELINE.read_text())
         self.assertEqual(baseline['sha256'], TRUSTED_KSU_SHA)
         self.assertEqual(baseline['undefined_count'], 232)
         self.assertEqual(len(baseline['undefined_symbols']), 232)
         self.assertEqual(baseline['vermagic'], '5.15.202 SMP preempt mod_unload modversions aarch64')
-        self.assertEqual(list((ROOT / 'assets').glob('*.ko')), [helper])
-        wrapper = (ROOT/'tools/build-dfroot.sh').read_text()
-        self.assertIn('6de62220809a678fddbd3819e4fcb3bb68aa1eae', wrapper)
-        self.assertIn('ViddaC3-KernelSU-Next.ko', wrapper)
-        self.assertNotIn('GOOD_KSU', wrapper)
-        self.assertIn("500000 + int(env['GITHUB_RUN_NUMBER'])", (ROOT/'tools/prepare-apk-signing.py').read_text())
 
     def test_abi_comparison_is_offline_without_static_binary(self):
         c = load(ROOT/'tools/compare-kernelsu-abi.py', 'vidda_abi')

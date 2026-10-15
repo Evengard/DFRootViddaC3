@@ -7,7 +7,7 @@ OLD_REF=6de62220809a678fddbd3819e4fcb3bb68aa1eae
 OLD_HELPER_SHA=5135155128a90947e6ec341c36ce4b7169bdfe68f363341c9d0ed9568c60e473
 WORK="$ROOT/work/DFRoot"
 DIST="$ROOT/dist/vidda-c3"
-HELPER="$ROOT/assets/dfroot-helper-6de6222.ko"
+HELPER="$WORK/app/src/main/jni/ko/dfroot-android14-5.15.ko"
 SELECTED_KSU="$ROOT/dist/vidda-c3-kernelsu/ViddaC3-KernelSU-Next.ko"
 MODULE_SELECTION=ci-compiled-unverified
 APK_NAME=ViddaC3-Root.apk
@@ -18,8 +18,6 @@ trap 'rm -f -- "$WORK/keystore.jks" "$WORK/signing.properties"' EXIT
 for cmd in git python3 docker sha256sum; do
   command -v "$cmd" >/dev/null || { echo "Missing: $cmd" >&2; exit 2; }
 done
-[[ -f "$HELPER" ]] || { echo 'Missing proven DFRoot first-stage helper' >&2; exit 1; }
-printf '%s  %s\n' "$OLD_HELPER_SHA" "$HELPER" | sha256sum -c -
 python3 -m unittest discover -s "$ROOT/tests" -p 'test_c3u_foreground_service.py' -v
 mkdir -p "$(dirname "$WORK")" "$ROOT/.ci-cache/gradle-vidda-c3"
 rm -rf -- "$WORK" "$DIST"
@@ -29,6 +27,11 @@ git -C "$WORK" remote add origin https://github.com/diabl0w/DFRoot.git
 git -C "$WORK" -c protocol.version=2 fetch -q --depth=1 origin "$OLD_REF"
 git -C "$WORK" checkout -q --detach FETCH_HEAD
 python3 "$ROOT/tools/prepare-dfroot.py" "$WORK"
+# The DFRoot helper is compiled from the original archived source, not staged
+# from a binary in the repository. Fail closed on any output mismatch.
+bash "$ROOT/tools/build-dfroot-helper.sh" "$WORK"
+[[ -s "$HELPER" ]] || { echo 'DFRoot source build did not produce helper' >&2; exit 1; }
+printf '%s  %s\n' "$OLD_HELPER_SHA" "$HELPER" | sha256sum -c -
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_stage.py" "$WORK"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_foreground_service.py" "$WORK"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_tv_settings.py" "$WORK"
@@ -36,8 +39,8 @@ python3 "$ROOT/patches/dfroot/set-app-name.py" "$WORK"
 # Signing is prepared only after the disposable checkout is fully patched.
 python3 "$ROOT/tools/prepare-apk-signing.py" "$WORK"
 
-# Only the userspace DFRoot app is built at this stage; the chosen .ko was
-# compiled in the preceding CI step. Do not regenerate the DFRoot helper.
+# Both helper and KernelSU module were compiled and validated above.
+# Do not rebuild modules during the Android Gradle packaging phase.
 BUILDER=vidda-c3-dfroot:local
 docker build --platform linux/amd64 -t "$BUILDER" \
   -f "$ROOT/patches/dfroot/Dockerfile" "$ROOT/patches/dfroot"
@@ -99,6 +102,7 @@ print('PASS: byte-exact SELECTED KernelSU module embedded in libc3uksu.so; NO ks
 PY
 python3 "$ROOT/tools/verify-service-apk.py" "$APK"
 cp "$APK" "$DIST/$APK_NAME"
+cp "$HELPER" "$DIST/ViddaC3-DFRoot-Helper.ko"
 cp "$WORK/out/apk-signature.txt" "$DIST/apk-signature.txt"
 python3 - "$DIST" "$OLD_REF" "$OLD_HELPER_SHA" "$SELECTED_KSU" "$MODULE_SELECTION" "$APK_NAME" "$SIGNING_CERT_SHA256" <<'PY'
 import hashlib,json,sys
@@ -113,7 +117,10 @@ version_match=re.search(r'(?m)^\s*versionCode\s*=\s*(\d+)\s*$', gradle)
 if not version_match: raise SystemExit('Cannot determine built APK versionCode')
 manifest={
   'status': 'CI_REBUILT_DEVICE_VERIFICATION_REQUIRED',
-  'dfroot':{'ref':sys.argv[2], 'helper_sha256':sys.argv[3]},
+  'dfroot':{'ref':sys.argv[2], 'helper_sha256':sys.argv[3],
+            'helper_selection':'compiled-from-pinned-source-byte-identical-to-device-tested',
+            'helper_kmi':'android14-5.15',
+            'helper_ddk_image':'ghcr.io/ylarod/ddk-min:android14-5.15-20260828'},
   'kernelsu':{'selection':sys.argv[5], 'sha256':hashlib.sha256(ko.read_bytes()).hexdigest(),
               'bytes':ko.stat().st_size,
               **json.loads((out.parent/'vidda-c3-kernelsu/source-version.json').read_text())},

@@ -14,6 +14,5 @@ __pycache__/
 *.keystore
 *.pem
 *.p12
-# Only the tested 12 KB DFRoot bootstrap helper is intentionally committed.
+# All kernel modules are compiled during CI; no prebuilt .ko is committed.
 *.ko
-!assets/dfroot-helper-6de6222.ko

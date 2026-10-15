@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
-"""Prepare the archived DFRoot first-stage revision for a diagnostic build.
+"""Verify and patch pinned DFRoot first-stage source; the helper is compiled separately.
 
-No KernelSU injection is added. This deliberately keeps the original
-Activity-based exploit path and the archived independent temporary-root server.
+The original DFRoot helper source and Makefile are verified against the
+device-tested build tree before Docker compilation, never copied as a static .ko.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
 LEGACY_DFROOT_REV = "6de62220809a678fddbd3819e4fcb3bb68aa1eae"
 LEGACY_RUNNER_SHA256 = "088c4052876287067b74bec016f7aa34b5dc8dad2f44523692e5226fce686a8d"
-LEGACY_HELPER_SHA256 = "5135155128a90947e6ec341c36ce4b7169bdfe68f363341c9d0ed9568c60e473"
-HELPER_NAME = "dfroot-android14-5.15.ko"
+HELPER_C_SHA256 = "1a661b6231030d3ccc1578345825831825baf1e966be2bde498f6d8d8e8ac0e6"
+HELPER_MAKEFILE_SHA256 = "e7708a6338001960c1155c21e500c8f98aeb60c800effe56efa1d5137659306f"
 # Source hashes taken from the actual archived checkout whose APK was verified
 # on the projector. C3U overlay normally differs only in two comments.
 LEGACY_JNI_SHA256 = {
@@ -35,7 +34,7 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def prepare(repo: Path, overlay: Path, helper: Path) -> Path:
+def prepare(repo: Path, overlay: Path) -> None:
     if not (repo / ".git").exists():
         raise ValueError("Expected a Git checkout of DFRoot")
     revision = subprocess.check_output(
@@ -46,8 +45,10 @@ def prepare(repo: Path, overlay: Path, helper: Path) -> Path:
     runner = repo / "app/src/main/java/df/root/ExploitRunner.java"
     if not runner.is_file() or sha256(runner) != LEGACY_RUNNER_SHA256:
         raise ValueError("Archived ExploitRunner source differs; refusing to patch")
-    if not helper.is_file() or sha256(helper) != LEGACY_HELPER_SHA256:
-        raise ValueError("DFRoot first-stage kernel helper is NOT the tested archived binary")
+    for source, trusted_sha in (("lkm/dfroot.c", HELPER_C_SHA256),
+                                ("lkm/Makefile", HELPER_MAKEFILE_SHA256)):
+        if sha256(repo / source) != trusted_sha:
+            raise ValueError(f"Original DFRoot helper source changed: {source}")
     if not (overlay / "apply_overlay.py").is_file() or not (overlay / "rootshell.c").is_file():
         raise ValueError("Existing C3U single-KMI/temporary-root overlay is missing")
     subprocess.run(
@@ -88,16 +89,10 @@ def prepare(repo: Path, overlay: Path, helper: Path) -> Path:
         raise ValueError("Temporary-root / one-KMI overlay was not correctly applied")
     if "c3u_ksu_preload" in bootstrap or "c3u_ksu_preload.c" in cmake:
         raise ValueError("Integrated KernelSU injection is forbidden in diagnostic build")
-    target = jni / "ko" / HELPER_NAME
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(helper, target)
-    if sha256(target) != LEGACY_HELPER_SHA256:
-        raise ValueError("Staged DFRoot helper differs from the archived working binary")
     print(f"PASS: DFRoot source pinned to {revision}")
-    print(f"PASS: legacy DFRoot helper SHA256 {LEGACY_HELPER_SHA256}")
+    print("PASS: original helper source and Makefile match device-tested checkout")
     print("PASS: JNI/CMake source hashes exactly match archived working checkout")
-    print("PASS: separate temporary root shell present; NO KernelSU injection")
-    return target
+    print("PASS: temporary root shell preserved; helper will be compiled in Docker")
 
 
 def main() -> None:
@@ -110,7 +105,6 @@ def main() -> None:
         prepare(
             args.dfroot_checkout.resolve(),
             root / "patches/dfroot/legacy-overlay",
-            root / "assets/dfroot-helper-6de6222.ko",
         )
     except (OSError, ValueError, subprocess.CalledProcessError) as err:
         parser.exit(1, f"Legacy DFRoot preparation FAILED: {err}\n")
