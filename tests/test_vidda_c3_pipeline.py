@@ -83,6 +83,21 @@ class ViddaC3SingleBuild(unittest.TestCase):
         self.assertEqual(len(baseline['undefined_symbols']), 232)
         self.assertEqual(baseline['vermagic'], '5.15.202 SMP preempt mod_unload modversions aarch64')
 
+    def test_docker_helper_precreates_writable_jni_directory(self):
+        """Docker must not become owner of the directory used by apply_stage.py."""
+        helper_build = (ROOT / 'tools/build-dfroot-helper.sh').read_text()
+        directory = 'STAGING_DIR="$(dirname "$TARGET")"'
+        create = 'mkdir -p -- "$STAGING_DIR"'
+        preflight = '[[ ! -w "$STAGING_DIR" ]]'
+        docker = 'docker run --rm'
+        self.assertEqual(helper_build.count(directory), 1)
+        self.assertEqual(helper_build.count(create), 1)
+        self.assertEqual(helper_build.count(preflight), 1)
+        self.assertLess(helper_build.index(directory), helper_build.index(docker))
+        self.assertLess(helper_build.index(create), helper_build.index(docker))
+        self.assertLess(helper_build.index(preflight), helper_build.index(docker))
+        self.assertIn('c3u-autobuilt.ko', helper_build)
+
     def test_abi_comparison_is_offline_without_static_binary(self):
         c = load(ROOT/'tools/compare-kernelsu-abi.py', 'vidda_abi')
         baseline = c.load_baseline(BASELINE)

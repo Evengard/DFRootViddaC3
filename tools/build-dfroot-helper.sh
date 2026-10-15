@@ -25,6 +25,16 @@ if data['module_kmi']!='android14-5.15' or data['ddk_image_tag']!='ghcr.io/ylaro
 print('PASS: exact pinned DFRoot helper source and Makefile verified')
 PYTHON
 TARGET="$WORK/app/src/main/jni/ko/dfroot-android14-5.15.ko"
+# Create the JNI staging directory as the calling user BEFORE Docker runs.
+# Otherwise root inside the container creates jni/ko as root:root, and the
+# following unprivileged apply_stage.py cannot create c3u-autobuilt.ko there.
+STAGING_DIR="$(dirname "$TARGET")"
+mkdir -p -- "$STAGING_DIR"
+if [[ ! -w "$STAGING_DIR" ]]; then
+  echo "ERROR: JNI staging directory is not writable by the CI user: $STAGING_DIR" >&2
+  echo "Remove the disposable work/DFRoot checkout and rebuild; do not chmod 777." >&2
+  exit 1
+fi
 # A fresh pinned checkout is used on every run; ensure the result comes from THIS build.
 rm -f -- "$TARGET"
 # This sequence matches the previously uploaded, successful build-in-docker.sh.
