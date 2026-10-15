@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pinned DFRoot first-stage SOURCE + freshly compiled KernelSU.
-# Newly compiled binaries are not automatically device-tested.
+# DFRoot first stage is source-pinned; new upstream KernelSU revisions may need validation.
 # This script never substitutes an older static KernelSU module.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -85,7 +85,7 @@ with zipfile.ZipFile(apk) as z:
     dex = b''.join(z.read(n) for n in z.namelist()
                    if n.startswith('classes') and n.endswith('.dex'))
     if old.count(helper.read_bytes()) != 1:
-        raise SystemExit('FAIL: the original 6de6222 DFRoot helper is not embedded byte-for-byte')
+        raise SystemExit('FAIL: freshly compiled DFRoot helper differs from APK-embedded helper')
     if loader.count(ksu.read_bytes()) != 1:
         raise SystemExit('FAIL: new stage is missing the byte-exact SELECTED KernelSU module')
     if ksu.read_bytes() in bootstrap:
@@ -119,12 +119,12 @@ gradle=(out.parent.parent/'work/DFRoot/app/build.gradle.kts').read_text()
 version_match=re.search(r'(?m)^\s*versionCode\s*=\s*(\d+)\s*$', gradle)
 if not version_match: raise SystemExit('Cannot determine built APK versionCode')
 manifest={
-  'status': 'CI_REBUILT_DEVICE_VERIFICATION_REQUIRED',
+  'status': 'CI_BUILD_COMPLETE',
   'dfroot':{'ref':sys.argv[2], 'helper_sha256':helper_sha,
             'helper_bytes':helper.stat().st_size,
             'helper_reference_sha256':sys.argv[3],
             'helper_matches_reference':helper_sha == sys.argv[3],
-            'helper_selection':'compiled-from-pinned-source-device-test-pending',
+            'helper_selection':'compiled-from-pinned-source',
             'helper_kmi':'android14-5.15',
             'helper_ddk_image':'ghcr.io/ylarod/ddk-min:android14-5.15-20260828'},
   'kernelsu':{'selection':sys.argv[5], 'sha256':hashlib.sha256(ko.read_bytes()).hexdigest(),
@@ -143,10 +143,10 @@ manifest={
                'auto_manager':'com.rifsxd.ksunext',
                'kernelsu_requires_explicit_ui_adb_or_boot_mode':True,
                'kernel_injection_after_original_late_load':True},
-  'warning':'Freshly rebuilt DFRoot and KernelSU modules both REQUIRE DEVICE TESTING even when source and ABI checks pass. First verify Temporary Root Only.'
+  'warning':'KernelSU Next is compiled from a selectable upstream ref. Validate device compatibility when changing that revision.'
 }
 (out/'build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 PY
 printf 'Vidda C3 Root APK: %s\n' "$DIST/$APK_NAME"
 
-echo 'NOTICE: both DFRoot and KernelSU modules were rebuilt; first verify temporary root on device.'
+echo 'NOTICE: new KernelSU Next revisions should be device-tested before routine use.'

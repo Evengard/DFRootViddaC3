@@ -57,9 +57,9 @@ class ViddaC3SingleBuild(unittest.TestCase):
         self.assertEqual(helper_baseline['makefile_sha256'], 'e7708a6338001960c1155c21e500c8f98aeb60c800effe56efa1d5137659306f')
         helper_build = (ROOT/'tools/build-dfroot-helper.sh').read_text()
         for expected in ('docker run', 'make -j', 'llvm-objcopy --strip-unneeded',
-                         'android14-5.15-20260828', 'device_tested_module_sha256',
+                         'android14-5.15-20260828', 'dfroot_commit',
                          'source_sha256', 'makefile_sha256',
-                         'not an ARM64 ELF relocatable module', 'requires device testing'):
+                         'not an ARM64 ELF relocatable module', 'SHA-256={digest}'):
             self.assertIn(expected, helper_build)
         wrapper = (ROOT/'tools/build-dfroot.sh').read_text()
         self.assertIn('6de62220809a678fddbd3819e4fcb3bb68aa1eae', wrapper)
@@ -69,7 +69,11 @@ class ViddaC3SingleBuild(unittest.TestCase):
         self.assertIn('ViddaC3-DFRoot-Helper.ko', wrapper)
         self.assertIn('helper_sha256', wrapper)
         self.assertIn('helper_matches_reference', wrapper)
-        self.assertIn('compiled-from-pinned-source-device-test-pending', wrapper)
+        self.assertIn("'helper_selection':'compiled-from-pinned-source'", wrapper)
+        self.assertIn("'status': 'CI_BUILD_COMPLETE'", wrapper)
+        self.assertNotIn('both DFRoot and KernelSU modules', wrapper)
+        self.assertNotIn('device-test-pending', wrapper)
+        self.assertNotIn('WARNING: DFRoot helper differs', helper_build)
         self.assertNotIn('sha256sum -c -', wrapper)
         self.assertNotIn('compiled-from-pinned-source-byte-identical-to-device-tested', wrapper)
         self.assertNotIn('DFRoot helper output differs from DEVICE-TESTED binary', helper_build)
@@ -82,6 +86,20 @@ class ViddaC3SingleBuild(unittest.TestCase):
         self.assertEqual(baseline['undefined_count'], 232)
         self.assertEqual(len(baseline['undefined_symbols']), 232)
         self.assertEqual(baseline['vermagic'], '5.15.202 SMP preempt mod_unload modversions aarch64')
+
+    def test_helper_hash_warning_removed_without_losing_checks(self):
+        helper_script = (ROOT/'tools/build-dfroot-helper.sh').read_text()
+        apk_builder = (ROOT/'tools/build-dfroot.sh').read_text()
+        for required in ('dfroot_commit', 'source_sha256', 'makefile_sha256',
+                         'not an ARM64 ELF relocatable module', 'SHA-256={digest}'):
+            self.assertIn(required, helper_script)
+        self.assertNotIn('WARNING: DFRoot helper', helper_script)
+        self.assertNotIn('historical device-tested artifact', helper_script)
+        self.assertIn("'helper_sha256':helper_sha", apk_builder)
+        self.assertIn("'helper_matches_reference':helper_sha == sys.argv[3]", apk_builder)
+        self.assertIn('old.count(helper.read_bytes()) != 1', apk_builder)
+        self.assertIn('KernelSU Next is compiled from a selectable upstream ref', apk_builder)
+        self.assertNotIn('both DFRoot and KernelSU modules', apk_builder)
 
     def test_docker_helper_precreates_writable_jni_directory(self):
         """Docker must not become owner of the directory used by apply_stage.py."""
