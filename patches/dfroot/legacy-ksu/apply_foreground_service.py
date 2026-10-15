@@ -15,7 +15,10 @@ import sys
 # apply_stage.py integration, before this new Android-only migration.
 EXPECTED = {
     'app/src/main/java/df/root/MainActivity.java': '2306f926e468a40f5e808f3f0f497df0dcda2ef2a838b265eab9bf2f234e8cda',
-    'app/src/main/java/df/root/ExploitRunner.java': '3468813689c4e9d6c8d37c32fc19cce212fb9470674efa4459c57bfed41c09f1',
+    # Hash of the pinned ExploitRunner *after* apply_stage.py removed the
+    # obsolete hardcoded Manager ksud SHA-256 restriction. Preserve this exact
+    # hash gate: foreground-service migration must not alter unknown sources.
+    'app/src/main/java/df/root/ExploitRunner.java': '1c8cdb759cc36b3bd88c1994a3a86e90b14a135943a2c23032f289ab080e5e03',
     'app/src/main/java/df/root/BootReceiver.java': 'bb3985e1a71335f3ba4f18179e8d3b99770edc819503ed1cf5dc6714ddb2803b',
     'app/src/main/java/df/root/SettingsFragment.java': '6e13456c19be7258f90e510c9d38922018b770a10f37de1b806dacc47bd9fae5',
     'app/src/main/AndroidManifest.xml': 'b1bcf07ff6eaf81e21606c3d084d7f89fee49922d59beeb930dba33c5ba16af8',
