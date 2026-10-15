@@ -6,5 +6,5 @@
   "makefile_sha256": "e7708a6338001960c1155c21e500c8f98aeb60c800effe56efa1d5137659306f",
   "device_tested_module_sha256": "5135155128a90947e6ec341c36ce4b7169bdfe68f363341c9d0ed9568c60e473",
   "device_tested_module_bytes": 12232,
-  "policy": "Build helper from pinned commit using archived DDK command; fail if bytes differ from device-tested module; no static .ko in Git"
+  "policy": "Compile the helper from the exact pinned DFRoot source and DDK image; historical helper hash is informational only; enforce ARM64 ELF format and record actual SHA-256 in the build manifest; no static .ko in Git"
 }

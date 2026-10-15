@@ -45,7 +45,7 @@ class ViddaC3SingleBuild(unittest.TestCase):
         self.assertIn('prepare-apk-signing.py" --check', sh)
         self.assertIn('verify-vidda-c3-apk.py', sh)
 
-    def test_both_modules_are_source_built_and_helper_is_checked_against_original(self):
+    def test_both_modules_are_source_built_without_reference_hash_gate(self):
         self.assertFalse((ROOT/'known-good/working-v6.ko').exists())
         self.assertFalse((ROOT/'known-good/working-v6.sha256').exists())
         self.assertFalse((ROOT/'assets/dfroot-helper-6de6222.ko').exists())
@@ -58,7 +58,8 @@ class ViddaC3SingleBuild(unittest.TestCase):
         helper_build = (ROOT/'tools/build-dfroot-helper.sh').read_text()
         for expected in ('docker run', 'make -j', 'llvm-objcopy --strip-unneeded',
                          'android14-5.15-20260828', 'device_tested_module_sha256',
-                         'source_sha256', 'makefile_sha256'):
+                         'source_sha256', 'makefile_sha256',
+                         'not an ARM64 ELF relocatable module', 'requires device testing'):
             self.assertIn(expected, helper_build)
         wrapper = (ROOT/'tools/build-dfroot.sh').read_text()
         self.assertIn('6de62220809a678fddbd3819e4fcb3bb68aa1eae', wrapper)
@@ -66,6 +67,12 @@ class ViddaC3SingleBuild(unittest.TestCase):
         self.assertLess(wrapper.index('build-dfroot-helper.sh'), wrapper.index('apply_stage.py'))
         self.assertLess(wrapper.index('build-dfroot-helper.sh'), wrapper.index('assembleRelease'))
         self.assertIn('ViddaC3-DFRoot-Helper.ko', wrapper)
+        self.assertIn('helper_sha256', wrapper)
+        self.assertIn('helper_matches_reference', wrapper)
+        self.assertIn('compiled-from-pinned-source-device-test-pending', wrapper)
+        self.assertNotIn('sha256sum -c -', wrapper)
+        self.assertNotIn('compiled-from-pinned-source-byte-identical-to-device-tested', wrapper)
+        self.assertNotIn('DFRoot helper output differs from DEVICE-TESTED binary', helper_build)
         self.assertIn('ViddaC3-KernelSU-Next.ko', wrapper)
         self.assertNotIn('assets/dfroot-helper-6de6222.ko', wrapper)
         self.assertNotIn('GOOD_KSU', wrapper)

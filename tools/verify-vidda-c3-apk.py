@@ -43,7 +43,7 @@ def verify(apk: Path, ko: Path, manifest: Path) -> str:
         if native.count(content) != 1:
             raise ValueError('APK does not contain EXACTLY ONE byte-identical rebuilt .ko in libc3uksu.so')
         # Ensure normal first-stage loader and the independent root-shell client
-        # are still present (the original helper hash is checked by build script).
+        # are still present (the rebuilt helper is matched to APK by build script).
         for name in ('lib/arm64-v8a/libbootstrap.so', 'lib/arm64-v8a/libdfroot.so',
                      'lib/arm64-v8a/libdfrootsu.so'):
             if name not in z.namelist():

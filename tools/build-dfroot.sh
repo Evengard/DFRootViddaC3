@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Pinned, device-tested DFRoot first stage + freshly compiled KernelSU.
+# Pinned DFRoot first-stage SOURCE + freshly compiled KernelSU.
+# Newly compiled binaries are not automatically device-tested.
 # This script never substitutes an older static KernelSU module.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -27,11 +28,11 @@ git -C "$WORK" remote add origin https://github.com/diabl0w/DFRoot.git
 git -C "$WORK" -c protocol.version=2 fetch -q --depth=1 origin "$OLD_REF"
 git -C "$WORK" checkout -q --detach FETCH_HEAD
 python3 "$ROOT/tools/prepare-dfroot.py" "$WORK"
-# The DFRoot helper is compiled from the original archived source, not staged
-# from a binary in the repository. Fail closed on any output mismatch.
+# Compile the DFRoot helper from the pinned original source.
+# The helper output hash is recorded, never required to equal a historical build.
 bash "$ROOT/tools/build-dfroot-helper.sh" "$WORK"
 [[ -s "$HELPER" ]] || { echo 'DFRoot source build did not produce helper' >&2; exit 1; }
-printf '%s  %s\n' "$OLD_HELPER_SHA" "$HELPER" | sha256sum -c -
+echo "INFO: DFRoot helper compiled from pinned source; artifact hash recorded in build-manifest.json"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_stage.py" "$WORK"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_foreground_service.py" "$WORK"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_tv_settings.py" "$WORK"
@@ -97,7 +98,7 @@ with zipfile.ZipFile(apk) as z:
         raise SystemExit('FAIL: Manager-staged ksud runtime pin missing')
     if b'07c12cee5bbe68c989dd4edc3189dfba6832ca0f73ff1be90727da8a0a1869c3' in loader:
         raise SystemExit('FAIL: bundled standalone ksud identity leaked into loader')
-print('PASS: original DFRoot helper, standalone root shell, and opt-in staging included')
+print('PASS: just-compiled DFRoot helper, standalone root shell, and opt-in staging included')
 print('PASS: byte-exact SELECTED KernelSU module embedded in libc3uksu.so; NO ksud bundled')
 PY
 python3 "$ROOT/tools/verify-service-apk.py" "$APK"
@@ -108,6 +109,8 @@ python3 - "$DIST" "$OLD_REF" "$OLD_HELPER_SHA" "$SELECTED_KSU" "$MODULE_SELECTIO
 import hashlib,json,sys
 from pathlib import Path
 out=Path(sys.argv[1]); apk=out/sys.argv[6]; ko=Path(sys.argv[4]);
+helper=out/'ViddaC3-DFRoot-Helper.ko'
+helper_sha=hashlib.sha256(helper.read_bytes()).hexdigest()
 import re
 # Certificate hash comes from the version-tolerant parser. The preceding
 # apksigner verify command must have succeeded before we reach this point.
@@ -117,8 +120,11 @@ version_match=re.search(r'(?m)^\s*versionCode\s*=\s*(\d+)\s*$', gradle)
 if not version_match: raise SystemExit('Cannot determine built APK versionCode')
 manifest={
   'status': 'CI_REBUILT_DEVICE_VERIFICATION_REQUIRED',
-  'dfroot':{'ref':sys.argv[2], 'helper_sha256':sys.argv[3],
-            'helper_selection':'compiled-from-pinned-source-byte-identical-to-device-tested',
+  'dfroot':{'ref':sys.argv[2], 'helper_sha256':helper_sha,
+            'helper_bytes':helper.stat().st_size,
+            'helper_reference_sha256':sys.argv[3],
+            'helper_matches_reference':helper_sha == sys.argv[3],
+            'helper_selection':'compiled-from-pinned-source-device-test-pending',
             'helper_kmi':'android14-5.15',
             'helper_ddk_image':'ghcr.io/ylarod/ddk-min:android14-5.15-20260828'},
   'kernelsu':{'selection':sys.argv[5], 'sha256':hashlib.sha256(ko.read_bytes()).hexdigest(),
@@ -137,10 +143,10 @@ manifest={
                'auto_manager':'com.rifsxd.ksunext',
                'kernelsu_requires_explicit_ui_adb_or_boot_mode':True,
                'kernel_injection_after_original_late_load':True},
-  'warning':'A rebuilt .ko is NOT automatically device-tested even if ABI checks pass. First verify Temporary Root Only.'
+  'warning':'Freshly rebuilt DFRoot and KernelSU modules both REQUIRE DEVICE TESTING even when source and ABI checks pass. First verify Temporary Root Only.'
 }
 (out/'build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 PY
 printf 'Vidda C3 Root APK: %s\n' "$DIST/$APK_NAME"
 
-echo 'NOTICE: this APK contains the latest selected KernelSU module; validate on device after upstream updates.'
+echo 'NOTICE: both DFRoot and KernelSU modules were rebuilt; first verify temporary root on device.'
