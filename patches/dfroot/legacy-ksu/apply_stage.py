@@ -22,9 +22,8 @@ UPSTREAM_BASELINE = {
     'app/src/main/res/layout/activity_main.xml': 'f3479a8c2e8a3e45be6c0aa1caccbc6ac5e827cff352863ad7f746354ff1e841',
 }
 KO_SHA256 = '7b5374327b316ccb4e0c4271b938b664f193b7aeb3dd25bd9428976a6c08a38b'
-# Observed on the projector and explicitly tested with "ksud insmod". We do not
-# bundle this ksud: the legacy app copies libksud.so from the selected Manager.
-MANAGER_KSUD_SHA256 = '448155d297e0402ca577379131fc081387a4454392212c3b1567a9de0d58c974'
+# The selected, installed KernelSU Next Manager supplies ksud at runtime.
+# Do not pin the Manager binary: updates may legitimately replace libksud.so.
 
 
 def sha256(path: Path) -> str:
@@ -134,11 +133,7 @@ def modify_bootstrap(src: str) -> str:
 
 
 JAVA_EXTRA = r'''
-    // The selected, INSTALLED Manager supplies ksud; do not ship or replace it.
-    // Only the exact Manager ksud tested on the projector is authorized for the
-    // opt-in kernel stage, and a changed Manager fails before the exploit runs.
-    private static final String C3U_MANAGER_KSUD_SHA256 = "448155d297e0402ca577379131fc081387a4454392212c3b1567a9de0d58c974";
-
+    // Use the currently installed Manager's ksud, not a hardcoded binary hash.
     static File c3uRequestFile(Context ctx) {
         return new File(ctx.getFilesDir().getParentFile(), "c3u-ksu-request");
     }
@@ -148,18 +143,6 @@ JAVA_EXTRA = r'''
                 java.nio.charset.StandardCharsets.US_ASCII).trim();
         if (id.length() != 36) throw new IOException("Invalid kernel boot ID");
         return id;
-    }
-
-    private static String c3uSha256(File file) throws Exception {
-        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
-        try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
-            byte[] data = new byte[65536];
-            int n;
-            while ((n = in.read(data)) != -1) digest.update(data, 0, n);
-        }
-        StringBuilder hex = new StringBuilder(64);
-        for (byte b : digest.digest()) hex.append(String.format(java.util.Locale.ROOT, "%02x", b & 0xff));
-        return hex.toString();
     }
 '''
 
@@ -182,8 +165,8 @@ def modify_runner(src: str) -> str:
                 Files.deleteIfExists(request.toPath());
             } else {
                 File ksud = new File(ctx.getFilesDir().getParentFile(), "ksud");
-                if (!C3U_MANAGER_KSUD_SHA256.equals(c3uSha256(ksud)))
-                    throw new IOException("Manager ksud differs from manually tested C3U binary; no exploit run");
+                if (!ksud.isFile() || !ksud.canExecute())
+                    throw new IOException("Manager-staged ksud is missing or not executable");
                 stageBin(ctx, new File(ctx.getApplicationInfo().nativeLibraryDir,
                         "libc3uksu.so"), "c3u-ksu-loader");
             }

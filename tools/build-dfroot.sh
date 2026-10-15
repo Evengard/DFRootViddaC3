@@ -94,8 +94,8 @@ with zipfile.ZipFile(apk) as z:
         raise SystemExit('FAIL: independent temporary root shell not found')
     if b'c3u-ksu-request' not in dex or b'c3u-ksu-loader' not in dex:
         raise SystemExit('FAIL: opt-in Java wiring absent from final APK')
-    if b'448155d297e0402ca577379131fc081387a4454392212c3b1567a9de0d58c974' not in dex:
-        raise SystemExit('FAIL: Manager-staged ksud runtime pin missing')
+    if b'Manager ksud differs from manually tested C3U binary' in dex:
+        raise SystemExit('FAIL: obsolete Manager ksud SHA-256 restriction remains in APK')
     if b'07c12cee5bbe68c989dd4edc3189dfba6832ca0f73ff1be90727da8a0a1869c3' in loader:
         raise SystemExit('FAIL: bundled standalone ksud identity leaked into loader')
 print('PASS: just-compiled DFRoot helper, standalone root shell, and opt-in staging included')
@@ -131,7 +131,7 @@ manifest={
               'bytes':ko.stat().st_size,
               **json.loads((out.parent/'vidda-c3-kernelsu/source-version.json').read_text())},
   'ksud':{'source':'installed Manager libksud.so, staged by DFRoot (NOT bundled)',
-          'required_sha256':'448155d297e0402ca577379131fc081387a4454392212c3b1567a9de0d58c974'},
+          'sha256_policy':'not pinned; updated Manager ksud accepted'},
   'apk':{'filename':apk.name, 'sha256':hashlib.sha256(apk.read_bytes()).hexdigest(),
          'version_code':int(version_match.group(1)), 'signing_certificate_sha256':cert_sha256,
          'signing':'persistent-GitHub-Actions-secret-backed'},
