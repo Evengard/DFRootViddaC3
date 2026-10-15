@@ -10,7 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PARSER = ROOT / 'tools/parse-apk-signature.py'
-BUILDER = ROOT / 'tools/build-legacy-manager-ksu.sh'
+BUILDER = ROOT / 'tools/build-dfroot.sh'
 FINGERPRINT = '0123456789abcdef' * 4
 
 

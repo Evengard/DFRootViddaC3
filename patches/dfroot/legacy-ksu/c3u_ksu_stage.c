@@ -1,5 +1,5 @@
 /*
- * C3U second stage: embed the *device-tested* KernelSU Next module and use
+ * Vidda C3 second stage: embed the CI-built KernelSU Next module and use
  * the Manager-staged ksud to load it. No other ksud binary is bundled here.
  *
  * This executable is invoked by the legacy DFRoot bootstrap only after the
@@ -18,7 +18,7 @@
 #include <unistd.h>
 
 #define C3U_KSUD "/data/user_de/0/df.root/ksud"
-#define C3U_KO_PATH "/data/user_de/0/df.root/c3u-working-v6.ko"
+#define C3U_KO_PATH "/data/user_de/0/df.root/c3u-autobuilt.ko"
 #define C3U_STAGE_STATUS "/data/user_de/0/df.root/c3u-ksu-stage.status"
 
 __asm__(
@@ -26,7 +26,7 @@ __asm__(
     ".balign 16\n"
     ".global c3u_known_ko_start\n"
     "c3u_known_ko_start:\n"
-    ".incbin \"ko/c3u-working-v6.ko\"\n"
+    ".incbin \"ko/c3u-autobuilt.ko\"\n"
     ".global c3u_known_ko_end\n"
     "c3u_known_ko_end:\n"
     ".balign 16\n"
@@ -101,11 +101,11 @@ static int verify_written(const unsigned char *data, size_t len)
     return ok && off == len ? 0 : -1;
 }
 
-static int stage_known_module(void)
+static int stage_compiled_module(void)
 {
     const unsigned char *data = c3u_known_ko_start;
     size_t len = (size_t)(c3u_known_ko_end - c3u_known_ko_start);
-    if (len != 6797960) return -1; /* the *specific* tested module */
+    if (len != __VIDDA_C3_KO_SIZE__) return -1; /* exact CI-built module size */
     int fd = open(C3U_KO_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0) return -1;
     int ok = fchmod(fd, 0600) == 0 && write_all(fd, data, len) == 0 && fsync(fd) == 0;
@@ -142,7 +142,7 @@ int main(void)
         mark("/dev/dfkie3"); /* Manager-staged ksud unavailable */
         return 3;
     }
-    if (stage_known_module() != 0) {
+    if (stage_compiled_module() != 0) {
         mark("/dev/dfkie4"); /* embedded .ko couldn't be staged/verified */
         return 4;
     }

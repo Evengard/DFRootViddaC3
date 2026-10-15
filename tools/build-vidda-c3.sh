@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Single end-to-end path: compile KernelSU from exact tested source revision,
+# Single end-to-end path: compile KernelSU from selected upstream ref (dev by default),
 # then package THAT compiled .ko in the legacy DFRoot APK. No silent fallback.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-KO_DIR="$ROOT/dist-ksunext-reference"
-APK_DIR="$ROOT/dist-legacy-manager-ksu"
-KO="$KO_DIR/KernelSU-Next-C3U-REBUILT-UNVERIFIED-DO-NOT-LOAD.ko"
-APK="$APK_DIR/DFRoot-C3U-AUTOBUILT-KSUNEXT-UNVERIFIED.apk"
+KO_DIR="$ROOT/dist/vidda-c3-kernelsu"
+APK_DIR="$ROOT/dist/vidda-c3"
+KO="$KO_DIR/ViddaC3-KernelSU-Next.ko"
+APK="$APK_DIR/ViddaC3-Root.apk"
 
 # Fail immediately if CI has not been configured with one persistent signing key.
 # This prevents wasting time compiling a module that cannot be packaged.
@@ -19,15 +19,14 @@ rm -rf -- "$KO_DIR" "$APK_DIR"
 (
   unset C3U_SIGNING_KEYSTORE_B64 C3U_SIGNING_KEYSTORE_PASSWORD
   unset C3U_SIGNING_KEY_ALIAS C3U_SIGNING_KEY_PASSWORD
-  bash "$ROOT/tools/build-ksunext-tested-ref-candidate.sh"
+  bash "$ROOT/tools/build-kernelsu.sh"
 )
 test -s "$KO" || { echo 'FAIL: KernelSU compilation did not produce a .ko' >&2; exit 1; }
 
-# This flag changes the payload and native size guard used by the APK builder.
-# When anything is missing, that builder fails rather than using working-v6.ko.
-C3U_EMBED_REBUILT_KSU=1 bash "$ROOT/tools/build-legacy-manager-ksu.sh"
+# The APK builder requires this exact freshly compiled .ko and its ABI attestations.
+bash "$ROOT/tools/build-dfroot.sh"
 
-python3 "$ROOT/tools/verify-c3u-autobuilt-apk.py" \
+python3 "$ROOT/tools/verify-vidda-c3-apk.py" \
   --apk "$APK" --ko "$KO" --manifest "$APK_DIR/build-manifest.json"
 
 echo 'PASS: freshly compiled KernelSU module embedded inside APK'

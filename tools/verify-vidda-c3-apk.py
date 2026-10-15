@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove the CI output APK embeds exactly the .ko rebuilt in the SAME run."""
+"""Verify the Vidda C3 APK embeds only the freshly compiled KernelSU module."""
 from __future__ import annotations
 
 import argparse
@@ -22,7 +22,7 @@ def verify(apk: Path, ko: Path, manifest: Path) -> str:
     module = info.get('kernelsu', {})
     if module.get('selection') != 'ci-compiled-unverified':
         raise ValueError('APK was NOT built in freshly compiled module mode')
-    version_file = manifest.parent.parent / 'dist-ksunext-reference/source-version.json'
+    version_file = manifest.parent.parent / 'vidda-c3-kernelsu/source-version.json'
     if not version_file.is_file():
         raise ValueError('Missing selected KernelSU source/version attestation')
     source = json.loads(version_file.read_text())

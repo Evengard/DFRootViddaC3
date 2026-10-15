@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline comparison: newly built KernelSU module vs device-tested reference.
+"""Compare a freshly built KernelSU module against device-tested ABI metadata.
 
 This utility inspects files only. The subsequent CI stage will embed the new
 module into an opt-in APK and separately verify those packaged bytes.
@@ -113,33 +113,42 @@ def metadata(path: Path) -> dict:
     }
 
 
-def compare(known: Path, candidate: Path, source_revision: str = TESTED_SOURCE) -> dict:
-    good = metadata(known)
-    if good['sha256'] != KNOWN_GOOD_SHA:
-        raise ValueError(f'Reference module is not the device-tested binary: {good["sha256"]}')
-    built = metadata(candidate)
-    good_syms = set(good['undefined_symbols'])
-    new_syms = set(built['undefined_symbols'])
-    match = good['sha256'] == built['sha256']
-    return {
-        'status': 'byte_identical_to_tested_module' if match else 'candidate_differs_UNVERIFIED',
-        'source_revision': source_revision,
-        'ddk_image_tag': DDK_IMAGE,
-        'device_tested_known_good': good,
-        'rebuilt_candidate': built,
-        'candidate_matches_known_good_bytes': match,
-        'candidate_only_undefined_symbols': sorted(new_syms - good_syms),
-        'known_good_only_undefined_symbols': sorted(good_syms - new_syms),
-        'comparison_is_read_only': True,
-        'uploads_to_projector': False,
-        'runtime_validation': 'rebuilt candidate requires on-device validation if bytes differ',
-    }
+def load_baseline(path: Path) -> dict:
+    good = json.loads(path.read_text())
+    expected = {"sha256", "size", "vermagic", "undefined_symbols", "undefined_count"}
+    if not expected.issubset(good):
+        raise ValueError("Missing ABI baseline metadata")
+    if good["sha256"] != KNOWN_GOOD_SHA or good["undefined_count"] != len(good["undefined_symbols"]):
+        raise ValueError("Invalid pinned known-good ABI baseline")
+    if len(good["undefined_symbols"]) != len(set(good["undefined_symbols"])):
+        raise ValueError("Duplicate undefined symbols in ABI baseline")
+    return good
 
+
+def compare(baseline: Path, candidate: Path, source_revision: str = TESTED_SOURCE) -> dict:
+    good = load_baseline(baseline)
+    built = metadata(candidate)
+    good_syms = set(good["undefined_symbols"])
+    new_syms = set(built["undefined_symbols"])
+    match = good["sha256"] == built["sha256"]
+    return {
+        "status": "byte_identical_to_tested_module" if match else "candidate_differs_UNVERIFIED",
+        "source_revision": source_revision,
+        "ddk_image_tag": DDK_IMAGE,
+        "device_tested_known_good": good,
+        "rebuilt_candidate": built,
+        "candidate_matches_known_good_bytes": match,
+        "candidate_only_undefined_symbols": sorted(new_syms - good_syms),
+        "known_good_only_undefined_symbols": sorted(good_syms - new_syms),
+        "comparison_is_read_only": True,
+        "uploads_to_projector": False,
+        "runtime_validation": "updated module requires on-device testing",
+    }
 
 def markdown(result: dict) -> str:
     good, cand = result['device_tested_known_good'], result['rebuilt_candidate']
     return '\n'.join([
-        '# C3U KernelSU reference rebuild comparison',
+        '# Vidda C3 KernelSU module comparison',
         '',
         f'**Result:** `{result["status"]}`',
         '',
@@ -170,19 +179,18 @@ def markdown(result: dict) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--known', type=Path, required=True)
+    parser.add_argument('--baseline', type=Path, required=True)
     parser.add_argument('--candidate', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--source-revision', default=TESTED_SOURCE)
     args = parser.parse_args()
-    for f in (args.known, args.candidate):
-        if not f.is_file() or f.stat().st_size < 1024:
-            parser.error(f'Missing or suspiciously small ELF module: {f}')
-    result = compare(args.known, args.candidate, args.source_revision)
+    if not args.baseline.is_file() or not args.candidate.is_file() or args.candidate.stat().st_size < 1024:
+        parser.error('Missing ABI baseline or suspiciously small candidate .ko')
+    result = compare(args.baseline, args.candidate, args.source_revision)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / 'module-comparison.json').write_text(json.dumps(result, indent=2) + '\n')
     (args.output / 'module-comparison.md').write_text(markdown(result))
-    print('PASS: known-good module hash verified; candidate examined offline')
+    print('PASS: device-tested ABI baseline validated; newly compiled module examined offline')
     print(f'Comparison: {result["status"]}')
     if not result['candidate_matches_known_good_bytes']:
         print('WARNING: new module differs from tested bytes; compiled-mode APK requires device validation.')

@@ -1,16 +1,19 @@
-# Fetched third-party source and generated local/CI builds.
+# Generated upstream sources and CI output
 work/
+work-*/
 dist/
-*.pyc
+dist-*/
+.ci-cache/
 __pycache__/
+*.pyc
 .DS_Store
 *.log
-# Do not accidentally commit signed APKs or private signing keys.
+# Never commit release APKs or signing keys
 *.apk
 *.jks
 *.keystore
 *.pem
 *.p12
-# The only optional binary deliberately allowed is a verified known-good module.
+# Only the tested 12 KB DFRoot bootstrap helper is intentionally committed.
 *.ko
-!known-good/working-v6.ko
+!assets/dfroot-helper-6de6222.ko

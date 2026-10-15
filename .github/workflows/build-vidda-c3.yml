@@ -1,0 +1,54 @@
+name: Build Vidda C3 Root
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      ksun_ref:
+        description: 'KernelSU Next branch, tag or commit (default: dev)'
+        required: false
+        type: string
+        default: dev
+
+permissions:
+  contents: read
+
+jobs:
+  build-vidda-c3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      C3U_KSUN_REF: ${{ github.event.inputs.ksun_ref || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run source and build integration tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -v
+          bash -n tools/build-vidda-c3.sh
+          bash -n tools/build-kernelsu.sh
+          bash -n tools/build-dfroot.sh
+          bash -n patches/ksunext/build-in-docker.sh
+      - name: Compile and embed KernelSU Next in Vidda C3 Root APK
+        env:
+          C3U_SIGNING_KEYSTORE_B64: ${{ secrets.C3U_SIGNING_KEYSTORE_B64 }}
+          C3U_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.C3U_SIGNING_KEYSTORE_PASSWORD }}
+          C3U_SIGNING_KEY_ALIAS: ${{ secrets.C3U_SIGNING_KEY_ALIAS }}
+          C3U_SIGNING_KEY_PASSWORD: ${{ secrets.C3U_SIGNING_KEY_PASSWORD }}
+        run: bash tools/build-vidda-c3.sh
+      - name: Verify final APK matches compiled KernelSU module
+        run: |
+          python3 tools/verify-vidda-c3-apk.py \
+            --apk dist/vidda-c3/ViddaC3-Root.apk \
+            --ko dist/vidda-c3-kernelsu/ViddaC3-KernelSU-Next.ko \
+            --manifest dist/vidda-c3/build-manifest.json
+      - name: Upload Vidda C3 Root APK and verification reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidda-c3-root-${{ github.run_id }}
+          path: |
+            dist/vidda-c3/
+            dist/vidda-c3-kernelsu/
+          if-no-files-found: error
+          retention-days: 30

@@ -34,14 +34,14 @@ class C3UBackgroundServiceTests(unittest.TestCase):
         self.assertIn('app/src/main/jni/bootstrap.c', immutable)
         self.assertIn('app/src/main/java/df/root/ExploitRunner.java', immutable)
         self.assertTrue(set(immutable).isdisjoint(self.patch.TRANSFORMS))
-        self.assertIn('6de6222', (ROOT/'tools/build-legacy-manager-ksu.sh').read_text())
+        self.assertIn('6de6222', (ROOT/'tools/build-dfroot.sh').read_text())
 
     def test_activity_refactor_happens_after_compiled_module_staging(self):
-        build = (ROOT/'tools/build-legacy-manager-ksu.sh').read_text()
+        build = (ROOT/'tools/build-dfroot.sh').read_text()
         self.assertLess(build.index('apply_stage.py'), build.index('apply_foreground_service.py'))
         self.assertLess(build.index('apply_foreground_service.py'), build.index('assembleRelease'))
-        self.assertIn('verify-c3u-service-apk.py', build)
-        self.assertIn('build-c3u-autobuilt-apk.sh', (ROOT/'.github/workflows/build-legacy-manager-ksu.yml').read_text())
+        self.assertIn('verify-service-apk.py', build)
+        self.assertIn('build-vidda-c3.sh', (ROOT/'.github/workflows/build-vidda-c3.yml').read_text())
 
     def test_root_modes_and_adb_intent_requires_explicit_choice(self):
         service = self.template('C3URootForegroundService.java')
@@ -128,7 +128,7 @@ class C3UBackgroundServiceTests(unittest.TestCase):
                 self.patch.apply(path, JAVA)
 
     def test_final_apk_verifier_rejects_missing_classes(self):
-        tool = imported(ROOT/'tools/verify-c3u-service-apk.py', 'c3u_service_dex_verifier')
+        tool = imported(ROOT/'tools/verify-service-apk.py', 'c3u_service_dex_verifier')
         with tempfile.TemporaryDirectory() as d:
             p = Path(d)/'app.apk'
             with zipfile.ZipFile(p, 'w') as z:

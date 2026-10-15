@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Add an opt-in KernelSU second stage to the verified 6de6222 C3U baseline.
 
-Never patches DFRoot's exp.c or helper .ko. The default launch path retains
+Never patches DFRoot's exp.c or the proven first-stage helper. The default launch path retains
 original legacy bootstrap behavior, including the independent root shell.
 """
 from __future__ import annotations
@@ -283,36 +283,28 @@ set_target_properties(c3uksu PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
 target_link_options(c3uksu PRIVATE -Wl,-z,max-page-size=16384)
 set_source_files_properties(c3u_ksu_stage.c PROPERTIES
-    OBJECT_DEPENDS "${JNI_DIR}/ko/c3u-working-v6.ko")
+    OBJECT_DEPENDS "${JNI_DIR}/ko/c3u-autobuilt.ko")
 '''
     if 'c3uksu' in src:
         raise ValueError('CMake already has a c3uksu target')
     return src + addition
 
 
-# The ordinary path keeps the exact binary that succeeded on the projector.
-# Compiled mode is EXPLICIT and fails if any build prerequisite is missing.
-# Never select a compiled candidate as an implicit fallback.
-COMPILED_MODULE = 'KernelSU-Next-C3U-REBUILT-UNVERIFIED-DO-NOT-LOAD.ko'
-TESTED_REVISION = '78ed5d1f5b5041a197f0b55291876d62a6bd7c67'
+# Every Vidda C3 APK embeds only the freshly compiled and ABI-checked module.
+# The historical device-tested binary is represented by ABI metadata, not shipped.
+COMPILED_MODULE = 'ViddaC3-KernelSU-Next.ko'
 
 
-def select_module(package_root: Path, *, compiled: bool = False) -> Path:
-    if not compiled:
-        tested = package_root / 'known-good/working-v6.ko'
-        if not tested.is_file() or tested.stat().st_size != 6797960 or sha256(tested) != KO_SHA256:
-            raise ValueError('Known-good KernelSU .ko is missing or differs from the tested module')
-        return tested
-
-    dist = package_root / 'dist-ksunext-reference'
+def select_module(package_root: Path) -> Path:
+    dist = package_root / 'dist/vidda-c3-kernelsu'
     candidate = dist / COMPILED_MODULE
     checksum = dist / 'rebuilt-module.sha256'
     revision = dist / 'source-commit.txt'
     layout = dist / 'layout-report.txt'
     report = dist / 'module-comparison.json'
-    if not all(f.is_file() and f.stat().st_size > 0
-               for f in (candidate, checksum, revision, layout, report)):
-        raise ValueError('Compiled module or required build attestations are missing; NEVER fall back')
+    files = (candidate, checksum, revision, layout, report)
+    if not all(f.is_file() and f.stat().st_size > 0 for f in files):
+        raise ValueError('Freshly compiled KernelSU module or attestations missing; no fallback')
     expected_hash = checksum.read_text().split()[0].lower()
     actual_hash = sha256(candidate)
     if len(expected_hash) != 64 or any(c not in '0123456789abcdef' for c in expected_hash):
@@ -320,65 +312,61 @@ def select_module(package_root: Path, *, compiled: bool = False) -> Path:
     if actual_hash != expected_hash:
         raise ValueError('Compiled-module digest does not match build output')
     blob = candidate.read_bytes()
-    # ELF64 little-endian, ET_REL, EM_AARCH64, with the required C3U SELinux fix.
     if not (1024 * 1024 <= len(blob) <= 32 * 1024 * 1024
             and blob[:6] == b'\x7fELF\x02\x01'
             and int.from_bytes(blob[16:18], 'little') == 1
             and int.from_bytes(blob[18:20], 'little') == 183
             and blob.count(b'Permissive SELinux, keeping') >= 1
             and b'vermagic=' in blob):
-        raise ValueError('Compiled module fails basic ARM64 ELF / permissive SELinux checks')
+        raise ValueError('Compiled module fails ELF and SELinux checks')
     version_file = dist / 'source-version.json'
     if not version_file.is_file():
-        raise ValueError('Missing upstream source/version attestation')
+        raise ValueError('Missing KernelSU source/version attestation')
     metadata = json.loads(version_file.read_text())
     source_sha = revision.read_text().strip()
     if metadata.get('source_revision') != source_sha or not __import__('re').fullmatch(r'[0-9a-f]{40}', source_sha):
         raise ValueError('Rebuilt source revision not attested')
-    code = metadata.get('version_code')
-    count = metadata.get('git_commit_count')
-    tag = metadata.get('version_tag')
+    code, count, tag = (metadata.get('version_code'),
+                        metadata.get('git_commit_count'), metadata.get('version_tag'))
     if (not isinstance(code, int) or not isinstance(count, int)
             or code != 30000 + count or code < 31000
             or not isinstance(tag, str) or not __import__('re').fullmatch(
                 r'v[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9._-]+)?-viddaC3', tag)):
-        raise ValueError('Invalid upstream KernelSU version metadata')
+        raise ValueError('Invalid KernelSU source version metadata')
     if tag.encode('ascii') not in blob:
-        raise ValueError('Compiled ELF does not contain selected real upstream tag')
+        raise ValueError('Compiled ELF does not advertise selected upstream tag')
     comparison = json.loads(report.read_text())
+    baseline = json.loads((package_root / 'config/kernel-abi-baseline.json').read_text())
     if comparison.get('source_revision') != source_sha:
-        raise ValueError('Comparison was generated for the wrong KernelSU source revision')
+        raise ValueError('Comparison corresponds to the wrong source revision')
     if comparison.get('rebuilt_candidate', {}).get('sha256') != actual_hash:
-        raise ValueError('Comparison report does not match rebuilt module')
-    if comparison.get('device_tested_known_good', {}).get('sha256') != KO_SHA256:
-        raise ValueError('Comparison report does not reference the tested KernelSU module')
+        raise ValueError('ABI comparison does not match built module')
+    if comparison.get('device_tested_known_good', {}).get('sha256') != baseline['sha256']:
+        raise ValueError('ABI baseline does not match device-tested source')
     if comparison.get('candidate_only_undefined_symbols'):
-        raise ValueError('New undefined kernel symbols require separate ABI review; no APK')
-    if (comparison['rebuilt_candidate'].get('vermagic')
-            != comparison['device_tested_known_good'].get('vermagic')):
-        raise ValueError('KernelSU vermagic differs from the tested module; no APK')
+        raise ValueError('New undefined kernel symbols require ABI review; no APK')
+    if comparison['rebuilt_candidate'].get('vermagic') != baseline['vermagic']:
+        raise ValueError('KernelSU vermagic differs from tested baseline; no APK')
     return candidate
 
 
 def compiled_stage_files(source: str, module_size: int) -> tuple[str, str]:
-    """Prepare the generated stage only; don't modify the device-tested template."""
     if not (1024 * 1024 <= module_size <= 32 * 1024 * 1024):
         raise ValueError('Unexpected compiled module size')
-    source = replace_once(source, 'if (len != 6797960)',
-                          f'if (len != {module_size})', 'compiled size guard')
-    if source.count('c3u-working-v6.ko') != 2:
-        raise ValueError('Native stage .ko paths have changed; refuse guessed rewrite')
-    source = source.replace('c3u-working-v6.ko', 'c3u-autobuilt.ko')
+    source = replace_once(source, '__VIDDA_C3_KO_SIZE__',
+                          str(module_size), 'compiled module size guard')
+    if source.count('c3u-autobuilt.ko') != 2:
+        raise ValueError('Native stage .ko paths changed unexpectedly')
     return source, 'ko/c3u-autobuilt.ko'
 
 
-def apply(checkout: Path, package_root: Path, *, compiled: bool = False) -> None:
+def apply(checkout: Path, package_root: Path) -> None:
     checkout = checkout.resolve()
     for rel, expected in UPSTREAM_BASELINE.items():
         current = checkout / rel
         if not current.is_file() or sha256(current) != expected:
             raise ValueError(f'Unexpected legacy baseline at {rel}; refuse to patch')
-    source_ko = select_module(package_root, compiled=compiled)
+    source_ko = select_module(package_root)
     modifications = {
         'app/src/main/jni/bootstrap.c': modify_bootstrap,
         'app/src/main/jni/CMakeLists.txt': modify_cmake,
@@ -388,12 +376,7 @@ def apply(checkout: Path, package_root: Path, *, compiled: bool = False) -> None
     }
     results = {rel: fn((checkout / rel).read_text()) for rel, fn in modifications.items()}
     stage_src = (package_root / 'patches/dfroot/legacy-ksu/c3u_ksu_stage.c').read_text()
-    stage_ko = 'ko/c3u-working-v6.ko'
-    if compiled:
-        stage_src, stage_ko = compiled_stage_files(stage_src, source_ko.stat().st_size)
-        results['app/src/main/jni/CMakeLists.txt'] = replace_once(
-            results['app/src/main/jni/CMakeLists.txt'],
-            'ko/c3u-working-v6.ko', stage_ko, 'CMake compiled payload dependency')
+    stage_src, stage_ko = compiled_stage_files(stage_src, source_ko.stat().st_size)
     # Text patches are verified above, before writing any checkout files.
     for rel, body in results.items():
         (checkout / rel).write_text(body)
@@ -408,19 +391,17 @@ def apply(checkout: Path, package_root: Path, *, compiled: bool = False) -> None
         raise ValueError('Original DFRoot exploit unexpectedly changed')
     print('PASS: original legacy DFRoot exploit/helper and independent root shell unchanged')
     print('PASS: Manager-staged ksud used; no separate ksud bundled')
-    print(f'PASS: {"CI-compiled UNVERIFIED" if compiled else "device-tested"} module embedded in C3U second-stage source')
+    print('PASS: freshly compiled KernelSU module embedded in Vidda C3 stage')
     print(f'MODULE_SHA256={sha256(source_ko)}')
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('checkout', type=Path)
-    parser.add_argument('--compiled', action='store_true',
-                        help='Embed the locally compiled, attested KernelSU module instead of pinned bytes')
     args = parser.parse_args()
     package_root = Path(__file__).resolve().parents[3]
     try:
-        apply(args.checkout, package_root, compiled=args.compiled)
+        apply(args.checkout, package_root)
     except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
         raise SystemExit(f'Legacy+KSU integration refused: {exc}')
 

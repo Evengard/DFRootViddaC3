@@ -110,7 +110,7 @@ def main() -> None:
         prepare(
             args.dfroot_checkout.resolve(),
             root / "patches/dfroot/legacy-overlay",
-            root / "known-good/dfroot-helper-6de6222.ko",
+            root / "assets/dfroot-helper-6de6222.ko",
         )
     except (OSError, ValueError, subprocess.CalledProcessError) as err:
         parser.exit(1, f"Legacy DFRoot preparation FAILED: {err}\n")

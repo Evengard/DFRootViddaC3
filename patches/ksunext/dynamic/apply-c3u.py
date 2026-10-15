@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patch a chosen KernelSU Next Git revision for the Vidda C3U.
+"""Patch a chosen KernelSU Next Git revision for the Vidda C3.
 
 Fail closed if the SELinux late-load guard or Kbuild version rules change.
 Use host-derived, full-history Git version values: DDK images may not have git.
@@ -20,7 +20,7 @@ BEFORE = '''\t\tif (!getenforce()) {
 '''
 AFTER = '''\t\tif (!getenforce()) {
 \t\t\tpr_info("Permissive SELinux, keeping\\n");
-\t\t\t//setenforce(true); // Vidda C3U: never force Enforcing on this vendor kernel
+\t\t\t//setenforce(true); // Vidda C3: never force Enforcing on this vendor kernel
 \t\t}
 '''
 VERSION_START = '# Check if this is a git repository'
@@ -48,7 +48,7 @@ def patched_sources(init: str, kbuild: str, commit_count: int, tag: str) -> tupl
         raise ValueError('Unrecognized Kbuild version block')
     # Force verified full-history values rather than relying on git in the DDK container.
     # Kbuild's existing version calculation and ccflags-y emission are retained.
-    custom = ('# Vidda C3U: host-resolved real upstream Git history and suffix.\n'
+    custom = ('# Vidda C3: host-resolved real upstream Git history and suffix.\n'
               'KSU_GIT_VERSION_VALID := 1\n'
               f'KSU_GIT_VERSION := {commit_count}\n'
               f'KSU_GIT_TAG := {tag}-viddaC3\n\n')
@@ -93,7 +93,7 @@ def apply(repo: Path, output: Path, requested_ref: str) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     (output / 'source-version.json').write_text(json.dumps(info, indent=2) + '\n')
     (output / 'source-commit.txt').write_text(head + '\n')
-    print(f'C3U KernelSU: {tag}-viddaC3 ({version_code}), ref={requested_ref!r}, commit={head}')
+    print(f'Vidda C3 KernelSU: {tag}-viddaC3 ({version_code}), ref={requested_ref!r}, commit={head}')
     return info
 
 

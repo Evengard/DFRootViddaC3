@@ -10,9 +10,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / 'tools/prepare-apk-signing.py'
-WORKFLOW = ROOT / '.github/workflows/build-legacy-manager-ksu.yml'
-BUILDER = ROOT / 'tools/build-legacy-manager-ksu.sh'
-WRAPPER = ROOT / 'tools/build-c3u-autobuilt-apk.sh'
+WORKFLOW = ROOT / '.github/workflows/build-vidda-c3.yml'
+BUILDER = ROOT / 'tools/build-dfroot.sh'
+WRAPPER = ROOT / 'tools/build-vidda-c3.sh'
 
 
 def load():
@@ -54,8 +54,8 @@ class SigningTests(unittest.TestCase):
             gradle.parent.mkdir()
             gradle.write_text('defaultConfig {\n versionCode = 401\n versionName = "4.1"\n}\n')
             code = s.prepare(work, self.env())
-            self.assertEqual(code, 100042)
-            self.assertEqual(s.version_code(self.env()), 100042)
+            self.assertEqual(code, 500042)
+            self.assertEqual(s.version_code(self.env()), 500042)
             props = (work/'signing.properties').read_text()
             self.assertIn('KEYSTORE_FILE=../keystore.jks', props)
             self.assertIn('KEYSTORE_PASSWORD=p\\=assword\\: \\!\\#\\\\ okay', props)
@@ -64,7 +64,7 @@ class SigningTests(unittest.TestCase):
             if os.name != 'nt':
                 self.assertEqual((work/'keystore.jks').stat().st_mode & 0o777, 0o600)
                 self.assertEqual((work/'signing.properties').stat().st_mode & 0o777, 0o600)
-            self.assertIn('versionCode = 100042', gradle.read_text())
+            self.assertIn('versionCode = 500042', gradle.read_text())
 
     def test_only_disposable_gradle_file_is_accepted(self):
         s = load()
@@ -79,9 +79,9 @@ class SigningTests(unittest.TestCase):
     def test_apk_version_code_increases_on_github_run(self):
         s = load()
         env = self.env()
-        self.assertEqual(s.version_code(env), 100042)
+        self.assertEqual(s.version_code(env), 500042)
         env['GITHUB_RUN_NUMBER'] = '43'
-        self.assertEqual(s.version_code(env), 100043)
+        self.assertEqual(s.version_code(env), 500043)
         env['C3U_APK_VERSION_CODE'] = '201000'
         self.assertEqual(s.version_code(env), 201000)
         env['C3U_APK_VERSION_CODE'] = 'banana'
@@ -94,7 +94,7 @@ class SigningTests(unittest.TestCase):
         wrapper = WRAPPER.read_text()
         self.assertIn('branches: [master]', workflow)
         self.assertIn('default: dev', workflow)
-        self.assertIn('run: bash tools/build-c3u-autobuilt-apk.sh', workflow)
+        self.assertIn('run: bash tools/build-vidda-c3.sh', workflow)
         for name in load().NAMES:
             self.assertIn(f'{name}: ${{{{ secrets.{name} }}}}', workflow)
         self.assertIn('prepare-apk-signing.py" "$WORK"', build)

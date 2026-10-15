@@ -1,68 +1,49 @@
 #!/usr/bin/env bash
-# Legacy DFRoot (verified first stage) + opt-in KernelSU injection.
-# C3U_EMBED_REBUILT_KSU=1 embeds the .ko produced by the immediately preceding
-# pinned source compilation. Never silently falls back to known-good bytes.
+# Pinned, device-tested DFRoot first stage + freshly compiled KernelSU.
+# This script never substitutes an older static KernelSU module.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 OLD_REF=6de62220809a678fddbd3819e4fcb3bb68aa1eae
 OLD_HELPER_SHA=5135155128a90947e6ec341c36ce4b7169bdfe68f363341c9d0ed9568c60e473
-WORK="$ROOT/work-legacy-manager-ksu/DFRoot"
-# CI supplies one persistent signing identity. Never run upstream `make
-# signing.properties`, which creates a different keystore on every runner.
+WORK="$ROOT/work/DFRoot"
+DIST="$ROOT/dist/vidda-c3"
+HELPER="$ROOT/assets/dfroot-helper-6de6222.ko"
+SELECTED_KSU="$ROOT/dist/vidda-c3-kernelsu/ViddaC3-KernelSU-Next.ko"
+MODULE_SELECTION=ci-compiled-unverified
+APK_NAME=ViddaC3-Root.apk
 trap 'rm -f -- "$WORK/keystore.jks" "$WORK/signing.properties"' EXIT
-DIST="$ROOT/dist-legacy-manager-ksu"
-HELPER="$ROOT/known-good/dfroot-helper-6de6222.ko"
-GOOD_KSU="$ROOT/known-good/working-v6.ko"
-REBUILT_KSU="$ROOT/dist-ksunext-reference/KernelSU-Next-C3U-REBUILT-UNVERIFIED-DO-NOT-LOAD.ko"
-EMBED_REBUILT="${C3U_EMBED_REBUILT_KSU:-0}"
-[[ "$EMBED_REBUILT" == 0 || "$EMBED_REBUILT" == 1 ]] || {
-  echo 'C3U_EMBED_REBUILT_KSU must be 0 or 1' >&2; exit 2;
+[[ -s "$SELECTED_KSU" && -s "$ROOT/dist/vidda-c3-kernelsu/module-comparison.json" ]] || {
+  echo 'ERROR: freshly compiled KernelSU binary and ABI check are required' >&2; exit 1;
 }
-SELECTED_KSU="$GOOD_KSU"
-MODULE_SELECTION=pinned-device-tested
-APK_NAME=DFRoot-C3U-LEGACY-MANAGER-KSU.apk
-STAGE_ARG=()
-if [[ "$EMBED_REBUILT" == 1 ]]; then
-  SELECTED_KSU="$REBUILT_KSU"
-  MODULE_SELECTION=ci-compiled-unverified
-  APK_NAME=DFRoot-C3U-AUTOBUILT-KSUNEXT-UNVERIFIED.apk
-  STAGE_ARG=(--compiled)
-  # Must exist in this run: checks are repeated by the source integration
-  # patcher; there is NO fallback to the known-good .ko when rebuilt is set.
-  [[ -s "$REBUILT_KSU" && -s "$ROOT/dist-ksunext-reference/module-comparison.json" ]] || {
-    echo 'ERROR: compiled KernelSU artifact missing. Refusing to create an APK.' >&2; exit 1;
-  }
-fi
 for cmd in git python3 docker sha256sum; do
   command -v "$cmd" >/dev/null || { echo "Missing: $cmd" >&2; exit 2; }
 done
-[[ -f "$HELPER" && -f "$GOOD_KSU" ]] || { echo 'Missing verified .ko input' >&2; exit 1; }
+[[ -f "$HELPER" ]] || { echo 'Missing proven DFRoot first-stage helper' >&2; exit 1; }
 printf '%s  %s\n' "$OLD_HELPER_SHA" "$HELPER" | sha256sum -c -
-( cd "$ROOT/known-good" && sha256sum -c working-v6.sha256 )
-python3 -m unittest discover -s "$ROOT/tests" -p 'test_legacy_manager_ksu.py' -v
 python3 -m unittest discover -s "$ROOT/tests" -p 'test_c3u_foreground_service.py' -v
-mkdir -p "$(dirname "$WORK")" "$ROOT/.ci-cache/gradle-legacy-manager-ksu"
+mkdir -p "$(dirname "$WORK")" "$ROOT/.ci-cache/gradle-vidda-c3"
 rm -rf -- "$WORK" "$DIST"
 mkdir -p "$DIST"
 git init -q "$WORK"
 git -C "$WORK" remote add origin https://github.com/diabl0w/DFRoot.git
 git -C "$WORK" -c protocol.version=2 fetch -q --depth=1 origin "$OLD_REF"
 git -C "$WORK" checkout -q --detach FETCH_HEAD
-python3 "$ROOT/tools/prepare-legacy-first-stage.py" "$WORK"
-python3 "$ROOT/patches/dfroot/legacy-ksu/apply_stage.py" "$WORK" "${STAGE_ARG[@]}"
+python3 "$ROOT/tools/prepare-dfroot.py" "$WORK"
+python3 "$ROOT/patches/dfroot/legacy-ksu/apply_stage.py" "$WORK"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_foreground_service.py" "$WORK"
 python3 "$ROOT/patches/dfroot/legacy-ksu/apply_tv_settings.py" "$WORK"
+python3 "$ROOT/patches/dfroot/set-app-name.py" "$WORK"
 # Signing is prepared only after the disposable checkout is fully patched.
 python3 "$ROOT/tools/prepare-apk-signing.py" "$WORK"
 
 # Only the userspace DFRoot app is built at this stage; the chosen .ko was
 # compiled in the preceding CI step. Do not regenerate the DFRoot helper.
-BUILDER=dfroot-c3u-legacy-manager-ksu:local
+BUILDER=vidda-c3-dfroot:local
 docker build --platform linux/amd64 -t "$BUILDER" \
   -f "$ROOT/patches/dfroot/Dockerfile" "$ROOT/patches/dfroot"
 docker run --rm --platform linux/amd64 \
   --mount "type=bind,src=${WORK},dst=/work" \
-  --mount "type=bind,src=${ROOT}/.ci-cache/gradle-legacy-manager-ksu,dst=/gradle-cache" \
+  --mount "type=bind,src=${ROOT}/.ci-cache/gradle-vidda-c3,dst=/gradle-cache" \
   --workdir /work \
   --env GRADLE_USER_HOME=/gradle-cache \
   "$BUILDER" bash -euc '
@@ -116,7 +97,7 @@ with zipfile.ZipFile(apk) as z:
 print('PASS: original DFRoot helper, standalone root shell, and opt-in staging included')
 print('PASS: byte-exact SELECTED KernelSU module embedded in libc3uksu.so; NO ksud bundled')
 PY
-python3 "$ROOT/tools/verify-c3u-service-apk.py" "$APK"
+python3 "$ROOT/tools/verify-service-apk.py" "$APK"
 cp "$APK" "$DIST/$APK_NAME"
 cp "$WORK/out/apk-signature.txt" "$DIST/apk-signature.txt"
 python3 - "$DIST" "$OLD_REF" "$OLD_HELPER_SHA" "$SELECTED_KSU" "$MODULE_SELECTION" "$APK_NAME" "$SIGNING_CERT_SHA256" <<'PY'
@@ -127,17 +108,15 @@ import re
 # Certificate hash comes from the version-tolerant parser. The preceding
 # apksigner verify command must have succeeded before we reach this point.
 cert_sha256=sys.argv[7]
-gradle=(out.parent/'work-legacy-manager-ksu/DFRoot/app/build.gradle.kts').read_text()
+gradle=(out.parent.parent/'work/DFRoot/app/build.gradle.kts').read_text()
 version_match=re.search(r'(?m)^\s*versionCode\s*=\s*(\d+)\s*$', gradle)
 if not version_match: raise SystemExit('Cannot determine built APK versionCode')
 manifest={
-  'status': 'device_test_required' if sys.argv[5]=='pinned-device-tested' else 'CI_REBUILT_UNVERIFIED_DEVICE_TEST_REQUIRED',
+  'status': 'CI_REBUILT_DEVICE_VERIFICATION_REQUIRED',
   'dfroot':{'ref':sys.argv[2], 'helper_sha256':sys.argv[3]},
   'kernelsu':{'selection':sys.argv[5], 'sha256':hashlib.sha256(ko.read_bytes()).hexdigest(),
               'bytes':ko.stat().st_size,
-              **(json.loads((out.parent/'dist-ksunext-reference/source-version.json').read_text())
-                 if sys.argv[5]=='ci-compiled-unverified'
-                 else {'source_revision':'device-tested-binary','version_tag':'legacy-tested','version_code':None})},
+              **json.loads((out.parent/'vidda-c3-kernelsu/source-version.json').read_text())},
   'ksud':{'source':'installed Manager libksud.so, staged by DFRoot (NOT bundled)',
           'required_sha256':'448155d297e0402ca577379131fc081387a4454392212c3b1567a9de0d58c974'},
   'apk':{'filename':apk.name, 'sha256':hashlib.sha256(apk.read_bytes()).hexdigest(),
@@ -155,8 +134,6 @@ manifest={
 }
 (out/'build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 PY
-printf 'Opt-in integrated legacy APK: %s\n' "$DIST/$APK_NAME"
+printf 'Vidda C3 Root APK: %s\n' "$DIST/$APK_NAME"
 
-if [[ "$EMBED_REBUILT" == 1 ]]; then
-  echo "WARNING: APK contains a CI-REBUILT KernelSU module; runtime behavior is NOT validated."
-fi
+echo 'NOTICE: this APK contains the latest selected KernelSU module; validate on device after upstream updates.'

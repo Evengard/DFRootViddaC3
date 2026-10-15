@@ -71,12 +71,12 @@ public final class C3URootForegroundService extends Service {
         try {
             NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             manager.createNotificationChannel(new NotificationChannel(
-                    CHANNEL_ID, "C3U root operation", NotificationManager.IMPORTANCE_LOW));
+                    CHANNEL_ID, "Vidda C3 root operation", NotificationManager.IMPORTANCE_LOW));
             Intent viewIntent = new Intent(this, MainActivity.class);
             PendingIntent tap = PendingIntent.getActivity(this, 0, viewIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             Notification notice = new Notification.Builder(this, CHANNEL_ID)
-                    .setContentTitle("DFRoot C3U")
+                    .setContentTitle("Vidda C3 Root")
                     .setContentText(MODE_KSUN.equals(mode) ? "Root + KernelSU running" : "Temporary root running")
                     .setSmallIcon(R.mipmap.ic_launcher)
                     .setContentIntent(tap)

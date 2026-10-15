@@ -19,7 +19,7 @@ VERSION_CODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[
 [[ "$VERSION_TAG" == v*-viddaC3 && "$VERSION_CODE" =~ ^[0-9]+$ && "$VERSION_CODE" -ge 30000 ]] || {
   echo 'Unexpected KernelSU version metadata; refusing build' >&2; exit 1;
 }
-LAYOUT_CHECK="$SCRIPT_DIR/../verify-module-layout.py"
+LAYOUT_CHECK="$SCRIPT_DIR/verify-module-layout.py"
 [[ -f "$LAYOUT_CHECK" ]] || { echo "Missing $LAYOUT_CHECK" >&2; exit 2; }
 # This is the exact DDK tag from the archived successful-module builder.
 IMAGE="ghcr.io/ylarod/ddk-min:android14-5.15-20260828"
@@ -89,7 +89,7 @@ docker run --rm --platform linux/amd64 \
     else
       echo "DDK symbol diagnostic reported mismatches; inspect report"
     fi
-    cp kernelsu.ko /result/KernelSU-Next-C3U-REBUILT-UNVERIFIED-DO-NOT-LOAD.ko
-    sha256sum /result/KernelSU-Next-C3U-REBUILT-UNVERIFIED-DO-NOT-LOAD.ko > /result/rebuilt-module.sha256
-    echo "Compiled C3U KernelSU: $C3U_VERSION_TAG ($C3U_VERSION_CODE); not automatically device-tested"
+    cp kernelsu.ko /result/ViddaC3-KernelSU-Next.ko
+    sha256sum /result/ViddaC3-KernelSU-Next.ko > /result/rebuilt-module.sha256
+    echo "Compiled Vidda C3 KernelSU: $C3U_VERSION_TAG ($C3U_VERSION_CODE); not automatically device-tested"
   '

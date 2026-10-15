@@ -51,7 +51,8 @@ def version_code(env=None):
     env = os.environ if env is None else env
     raw = env.get('C3U_APK_VERSION_CODE')
     if raw is None and env.get('GITHUB_RUN_NUMBER') is not None:
-        raw = str(100000 + int(env['GITHUB_RUN_NUMBER']))
+        # New workflow name resets GITHUB_RUN_NUMBER. Stay above earlier 100000-series APKs.
+        raw = str(500000 + int(env['GITHUB_RUN_NUMBER']))
     if raw is None:
         return 401  # local-only fallback; CI always supplies GITHUB_RUN_NUMBER
     try:

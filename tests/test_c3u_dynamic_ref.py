@@ -56,8 +56,8 @@ class DynamicC3UIntegration(unittest.TestCase):
             self.ksu.patched_sources(good, kb, 3355, 'unsafe;tag')
 
     def test_workflow_auto_runs_and_manual_ref_is_data(self):
-        yml = (ROOT / '.github/workflows/build-legacy-manager-ksu.yml').read_text()
-        sh = (ROOT / 'tools/build-ksunext-tested-ref-candidate.sh').read_text()
+        yml = (ROOT / '.github/workflows/build-vidda-c3.yml').read_text()
+        sh = (ROOT / 'tools/build-kernelsu.sh').read_text()
         self.assertIn('push:', yml)
         self.assertIn('branches: [master]', yml)
         self.assertIn('workflow_dispatch:', yml)
@@ -70,7 +70,7 @@ class DynamicC3UIntegration(unittest.TestCase):
         self.assertIn('checkout -q --detach "$TARGET"', sh)
         self.assertIn('apply-c3u.py', sh)
         self.assertIn('--source-revision "$SOURCE_SHA"', sh)
-        self.assertIn('C3U_EMBED_REBUILT_KSU=1', (ROOT/'tools/build-c3u-autobuilt-apk.sh').read_text())
+        self.assertIn('build-dfroot.sh', (ROOT/'tools/build-vidda-c3.sh').read_text())
 
     def test_android_tv_settings_is_real_visible_button(self):
         before = '''package df.root;\n    private Button btnRunKsu;\n'''
@@ -84,12 +84,12 @@ class DynamicC3UIntegration(unittest.TestCase):
         self.assertIn('android:focusable="true"', layout)
         self.assertIn('android:text="Settings"', layout)
         self.assertLess(layout.index('btnSettings'), layout.index('outputScroll'))
-        build = (ROOT / 'tools/build-legacy-manager-ksu.sh').read_text()
+        build = (ROOT / 'tools/build-dfroot.sh').read_text()
         self.assertLess(build.index('apply_foreground_service.py'), build.index('apply_tv_settings.py'))
 
     def test_source_version_manifest_must_track_compiled_module(self):
         stage = (ROOT / 'patches/dfroot/legacy-ksu/apply_stage.py').read_text()
-        verify = (ROOT / 'tools/verify-c3u-autobuilt-apk.py').read_text()
+        verify = (ROOT / 'tools/verify-vidda-c3-apk.py').read_text()
         self.assertIn("'source-version.json'", stage)
         self.assertIn('version_code', stage)
         self.assertIn("tag.encode('ascii') not in blob", stage)
